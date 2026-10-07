@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "digital-twin-camera"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["Flask>=3.0,<4", "waitress>=3.0,<4", "digital-twin-common==0.1.0"]
+
+[project.optional-dependencies]
+opencv = ["opencv-python-headless>=4.8,<5"]
+
+[project.scripts]
+digital-twin-camera = "camera_service.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

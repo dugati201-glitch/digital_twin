@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Runtime output
+logs/
+recordings/
+*.log
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Device-specific YAML configuration
+config.local.yaml
