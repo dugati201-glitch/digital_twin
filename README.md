@@ -4,14 +4,14 @@ A Raspberry Pi 3B gateway connecting physical experiment equipment to a Web Digi
 
 ## Status
 
-This repository currently contains the initial architecture and directory structure. The camera service has an initial implementation and a systemd unit. Gateway code and update logic have not been implemented. Hardware validation on Raspberry Pi 3B is pending.
+The camera service implements WebRTC video using `aiortc`, HTTP offer/answer signaling, a browser demo, configuration validation, tests, and a systemd unit. WebRTC performance validation on Raspberry Pi 3B is pending. Gateway code and update logic have not been implemented.
 
 ## Services
 
 | Service | Responsibility |
 | --- | --- |
 | Gateway | Python service for UART communication and MQTT bridging |
-| Camera | Python service for camera capture and HTTP video streaming |
+| Camera | Python service for OpenCV capture, HTTP signaling, and WebRTC video using `aiortc` |
 
 The MQTT broker runs on an external server and is not deployed by this repository. Its implementation and connection settings have not been confirmed. ESP32/STM32 firmware and the Web interface are also outside this repository.
 
@@ -25,6 +25,7 @@ digital_twin/
 │   ├── 01-context.md
 │   ├── 02-containers.md
 │   ├── 03-components.md
+│   ├── 04-camera-webrtc.md
 │   └── deployment.md
 ├── config/
 │   └── logging.yaml

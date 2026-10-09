@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Digital Twin Camera</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+    }
+    body {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font: inherit;
+      cursor: pointer;
+    }
+    #start { background: #22c55e; color: #052e16; }
+    #stop { background: #ef4444; color: white; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    #videos {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    video {
+      display: block;
+      width: 100%;
+      background: black;
+      border-radius: 10px;
+    }
+    #status { color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <h1>Digital Twin WebRTC camera</h1>
+  <div class="controls">
+    <button id="start" type="button">Start</button>
+    <button id="stop" type="button" disabled>Stop</button>
+    <span id="status">Idle</span>
+  </div>
+  <div id="videos"></div>
+  <script src="/client.js"></script>
+</body>
+</html>

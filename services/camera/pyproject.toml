@@ -4,9 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "digital-twin-camera"
-version = "0.1.0"
-requires-python = ">=3.9"
-dependencies = ["Flask>=3.0,<4", "waitress>=3.0,<4", "digital-twin-common==0.1.0"]
+version = "0.2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.10,<4",
+    "aiortc>=1.15,<2",
+    "digital-twin-common==0.1.0",
+]
 
 [project.optional-dependencies]
 opencv = ["opencv-python-headless>=4.8,<5"]
@@ -16,3 +20,6 @@ digital-twin-camera = "camera_service.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+camera_service = ["static/*.html", "static/*.js"]

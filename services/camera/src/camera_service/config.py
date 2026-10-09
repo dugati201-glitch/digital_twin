@@ -1,55 +1,70 @@
-"""Load and validate service configuration from YAML."""
+"""Load and validate camera WebRTC service configuration from YAML."""
 
 from dataclasses import dataclass, fields
+import math
+
 from digital_twin_common.config import load_yaml_mapping
 
 
 @dataclass(frozen=True)
 class Config:
-    device: str
+    devices: list[str]
     host: str
     port: int
     width: int
     height: int
     fps: int
-    quality: int
-    max_clients: int
+    max_peers: int
     retry_seconds: float
     stale_seconds: float
     backend: str
     capture_buffer_size: int
     opencv_threads: int
     shutdown_seconds: float
-    http_spare_threads: int
-    http_output_buffer_bytes: int
 
     def __post_init__(self):
-        for field in fields(self):
-            value = getattr(self, field.name)
-            if field.type is float:
-                valid = type(value) in (int, float)
-            else:
-                valid = type(value) is field.type
-            if not valid:
-                raise ValueError(f"{field.name} must be {field.type.__name__}")
-        if not self.device or not self.host:
-            raise ValueError("Camera device and HTTP host must not be empty")
+        if (type(self.devices) is not list or not self.devices
+                or any(type(device) is not str or not device for device in self.devices)):
+            raise ValueError("devices must be a non-empty list of strings")
+        if len(set(self.devices)) != len(self.devices):
+            raise ValueError("devices must not contain duplicates")
+
+        expected_types = {
+            "host": str,
+            "port": int,
+            "width": int,
+            "height": int,
+            "fps": int,
+            "max_peers": int,
+            "retry_seconds": (int, float),
+            "stale_seconds": (int, float),
+            "backend": str,
+            "capture_buffer_size": int,
+            "opencv_threads": int,
+            "shutdown_seconds": (int, float),
+        }
+        for name, expected in expected_types.items():
+            value = getattr(self, name)
+            allowed = expected if isinstance(expected, tuple) else (expected,)
+            if type(value) not in allowed:
+                type_name = "number" if isinstance(expected, tuple) else expected.__name__
+                raise ValueError(f"{name} must be {type_name}")
+
+        if not self.host:
+            raise ValueError("HTTP host must not be empty")
         if not 1 <= self.port <= 65535:
             raise ValueError("HTTP port must be between 1 and 65535")
         if self.width < 1 or self.height < 1 or self.fps < 1:
             raise ValueError("Resolution and FPS must be positive")
-        if not 1 <= self.quality <= 100:
-            raise ValueError("JPEG quality must be between 1 and 100")
-        for name in ("max_clients", "capture_buffer_size", "opencv_threads",
-                     "http_spare_threads", "http_output_buffer_bytes"):
+        for name in ("max_peers", "capture_buffer_size", "opencv_threads"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive")
         if self.backend not in ("v4l2", "auto"):
             raise ValueError("Camera backend must be v4l2 or auto")
-        if not 0 < self.shutdown_seconds < float('inf'):
-            raise ValueError("Shutdown interval must be finite and positive")
-        if not (0 < self.retry_seconds < float('inf') and 0 < self.stale_seconds < float('inf')):
-            raise ValueError("Retry and stale intervals must be finite and positive")
+        for name in ("retry_seconds", "stale_seconds", "shutdown_seconds"):
+            value = getattr(self, name)
+            if not 0 < value < math.inf:
+                raise ValueError(f"{name} must be finite and positive")
 
     @classmethod
     def from_yaml(cls, path):

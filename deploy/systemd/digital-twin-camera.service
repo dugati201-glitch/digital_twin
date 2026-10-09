@@ -1,5 +1,5 @@
 [Unit]
-Description=Digital Twin Camera MJPEG Service
+Description=Digital Twin Camera WebRTC Service
 After=network.target
 
 [Service]

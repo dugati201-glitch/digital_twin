@@ -1,6 +1,6 @@
 # Deployment — Raspberry Pi 3B
 
-**Trạng thái:** camera service có implementation và systemd unit; chưa được triển khai hoặc benchmark trên Pi 3B. Gateway unit và update script vẫn là placeholder.
+**Trạng thái:** camera service đã triển khai WebRTC bằng `aiortc`, HTTP signaling, browser demo, tests và systemd unit. Chưa cài dependency mới hoặc benchmark WebRTC trên Pi 3B. Gateway unit và update script vẫn là placeholder.
 
 ```mermaid
 flowchart LR
@@ -20,7 +20,7 @@ Chạy khi được kích hoạt"]
     cam["Camera USB/CSI"]
     git["Git repository"]
     browser <-->|"MQTT/WebSockets, endpoint cần xác nhận"| broker
-    camera -->|"HTTP video, dự kiến :5000"| browser
+    camera <-->|"WebRTC media; HTTP signaling"| browser
     gateway <-->|"MQTT/TCP hoặc TLS, endpoint chưa chốt"| broker
     gateway <-->|"UART"| mcu
     cam --> camera
@@ -34,11 +34,11 @@ Chạy khi được kích hoạt"]
 | Service | Configuration trong repo | Resource |
 | --- | --- | --- |
 | Gateway | `deploy/systemd/digital-twin-gateway.service` | Serial và MQTT |
-| Camera | `deploy/systemd/digital-twin-camera.service` | Camera và HTTP listener |
+| Camera | `deploy/systemd/digital-twin-camera.service` | Camera, signaling listener và WebRTC peer connections |
 
 MQTT broker nằm ngoài Pi và không có cấu hình triển khai trong repo. Gateway và camera có unit riêng để quản lý khởi động, dừng và restart độc lập. Camera virtual environment cần cài cả `shared/` và `services/camera/`. Camera unit sử dụng user `digital-twin`, group bổ sung `video`, `Restart=on-failure` và timeout shutdown 10 giây. Gateway unit chưa có configuration thực thi.
 
-Pi 3B có tài nguyên hạn chế; bắt đầu camera ở 640×480, mục tiêu 15–20 FPS và đo CPU, RAM, UART latency và video latency trước khi tăng tải. Chưa có benchmark trong repo.
+Pi 3B có tài nguyên hạn chế. Demo một camera đặt mục tiêu 640×480 @ 30 FPS với một browser và phải đo CPU, RAM, nhiệt độ, FPS thực và video latency. Mở rộng hai camera đặt mục tiêu thử 2 × 640×480 @ 30 FPS, nhưng phải giảm FPS nếu Pi không giữ được tải và độ trễ yêu cầu. Chưa có benchmark WebRTC trong repo.
 
 ## UART và camera
 
@@ -52,11 +52,20 @@ Chỉ một process mở UART port tại một thời điểm. Nếu bổ sung f
 
 ## Cấu hình triển khai
 
-UART port, camera configuration, broker endpoint và HTTP port phải cấu hình được khi triển khai. Camera đọc YAML, xem [camera README](../services/camera/README.md) và `services/camera/config.yaml`. Python không lưu default cho các giá trị vận hành. Camera unit giả định repo tại `/opt/digital_twin`, virtual environment tại `services/camera/.venv`, và YAML configuration tại `/etc/digital-twin/camera.yaml`, được chọn qua `CAMERA_CONFIG_FILE` trong unit. Logging configuration tại `/etc/digital-twin/logging.yaml`, được chọn qua `LOG_CONFIG_FILE` trong unit. File mẫu nằm tại `config/logging.yaml`; stdout được systemd thu qua journald. Configuration phải tồn tại và hợp lệ trước khi service khởi động. Dùng `--config` để chọn file khi chạy thủ công; restart service sau khi sửa YAML. Gateway configuration chưa chốt. Giá trị riêng cho thiết bị, credentials, log, video và build artifact không lưu vào Git.
+UART port, camera configuration, broker endpoint và signaling listener phải cấu hình được khi triển khai. Camera đọc YAML, xem [camera README](../services/camera/README.md) và `services/camera/config.yaml`. Camera unit giả định repo tại `/opt/digital_twin`, virtual environment tại `services/camera/.venv`, và YAML configuration tại `/etc/digital-twin/camera.yaml`, được chọn qua `CAMERA_CONFIG_FILE` trong unit. Logging configuration tại `/etc/digital-twin/logging.yaml`, được chọn qua `LOG_CONFIG_FILE` trong unit. File mẫu nằm tại `config/logging.yaml`; stdout được systemd thu qua journald. Configuration phải tồn tại và hợp lệ trước khi service khởi động. Schema WebRTC dùng `devices` và `max_peers`; file MJPEG cũ không còn hợp lệ. Restart service sau khi sửa YAML. Gateway configuration chưa chốt. Credentials, TURN secret, log, video và build artifact không lưu vào Git.
 
-Pi cần kết nối được đến broker bên ngoài. Web cần endpoint MQTT/WebSockets do bên cung cấp xác nhận và đường truy cập riêng đến camera trên Pi. Broker chỉ chuyển tiếp dữ liệu MQTT, không tự cung cấp đường truy cập video từ Internet vào Pi.
+Pi cần kết nối được đến broker bên ngoài. Web cần endpoint MQTT/WebSockets do bên cung cấp xác nhận và kết nối riêng đến camera service. Broker chỉ chuyển tiếp dữ liệu MQTT, không tự làm WebRTC signaling server, STUN server, TURN server hoặc media relay nếu chưa được thiết kế rõ cho các vai trò đó.
 
-Camera HTTP mặc định listen `0.0.0.0:5000`, chưa có authentication hoặc TLS; phạm vi triển khai ban đầu là mạng local. Địa chỉ Pi và phương án truy cập video phụ thuộc mạng triển khai. Nếu Web dùng HTTPS, cần bố trí kết nối video và WebSockets tương thích để tránh bị trình duyệt chặn mixed content.
+Trong demo cùng LAN, browser tạo offer và gửi tới HTTP `POST /offer` trên Pi; Pi trả answer sau khi ICE gathering hoàn tất. Demo không dùng trickle ICE, STUN hoặc TURN. HTTP chỉ mang trang demo, signaling JSON và health response; media chỉ truyền bằng WebRTC. Service listen `0.0.0.0:5000` theo profile hiện tại. Khi Web và Pi khác mạng, phải đánh giá STUN/TURN, firewall, NAT, authentication và TLS. WebRTC media được mã hóa, nhưng signaling vẫn phải được bảo vệ và xác thực.
+
+### Contract WebRTC của demo
+
+- Browser là offerer; `POST /offer` nhận JSON gồm `sdp` và `type`, rồi trả JSON SDP answer.
+- Không trickle ICE; đợi ICE gathering hoàn tất trong lần trao đổi SDP.
+- Cùng LAN, không STUN/TURN và giới hạn một browser trong benchmark đầu.
+- Một camera mục tiêu 640×480 @ 30 FPS; hai camera là hai track và phải benchmark riêng.
+- Codec dùng tập codec chung do browser và `aiortc` negotiate trong bản đầu; ghi lại codec được chọn và tối ưu sau benchmark.
+- Production phải chốt authentication, HTTPS, STUN/TURN, session limit, timeout và reconnect behavior.
 
 ### Thông tin broker cần xác nhận
 

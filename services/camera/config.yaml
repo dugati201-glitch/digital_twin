@@ -1,17 +1,15 @@
-# Initial Raspberry Pi 3B profile. Measure load before increasing resolution or FPS.
-device: /dev/video0
+# Raspberry Pi 3B LAN demo. Add /dev/video1 only after benchmarking one camera.
+devices:
+  - /dev/video0
 host: 0.0.0.0
 port: 5000
 width: 640
 height: 480
 fps: 30
-quality: 75
-max_clients: 4
+max_peers: 1
 retry_seconds: 2.0
 stale_seconds: 5.0
 backend: v4l2
 capture_buffer_size: 1
 opencv_threads: 1
 shutdown_seconds: 3.0
-http_spare_threads: 2
-http_output_buffer_bytes: 262144

@@ -47,6 +47,8 @@ Chu kỳ telemetry 50 ms và baudrate 115200 là thông số dự kiến. Cần 
 
 ## Camera service
 
+**Đã triển khai:** WebRTC bằng `aiortc`, HTTP signaling và browser demo. **Chưa xác minh:** hiệu năng WebRTC trên Pi 3B.
+
 ```mermaid
 flowchart LR
     device["Camera Linux"]
@@ -54,20 +56,30 @@ flowchart LR
     subgraph camera["Camera service"]
         capture["Capture
 Frame capture and camera configuration"]
-        encoder["JPEG encoder
-JPEG encoding"]
-        http["HTTP streaming
-MJPEG streaming"]
+        track["Video track
+aiortc MediaStreamTrack"]
+        peer["Peer connection
+RTCPeerConnection lifecycle"]
+        signaling["Signaling adapter
+SDP và ICE"]
     end
     device --> capture
-    capture --> encoder
-    encoder --> http
-    http --> web
+    capture --> track
+    track --> peer
+    peer <-->|"WebRTC media"| web
+    signaling <-->|"HTTP POST /offer"| web
+    signaling --> peer
 ```
 
-Camera service sử dụng OpenCV với V4L2 backend, Flask cho HTTP endpoint và Waitress cho HTTP server. Một capture thread đọc camera và encode JPEG một lần cho mỗi frame. Các client dùng chung frame mới nhất; không tạo capture thread riêng cho từng client. `/video_feed` cung cấp MJPEG stream để Web hiển thị bằng thẻ `img`. `/health` trả HTTP 200 khi có frame còn hiệu lực, HTTP 503 khi camera unavailable.
+### WebRTC implementation
 
-Mặc định là 640×480, 15 FPS, JPEG quality 75 và tối đa 4 stream client. Configuration trong file YAML; resolution và FPS phải là số dương. Profile khuyến nghị ban đầu cho Pi 3B là 640×480 ở 15–20 FPS; đo tải trước khi tăng. Capture retry mỗi 2 giây khi open/read lỗi. Frame quá 5 giây không được sử dụng; stream đóng nếu không nhận được frame mới trong khoảng timeout, client cần reconnect. Khi hết client slot hoặc camera unavailable, `/video_feed` trả HTTP 503. Các thông số này có thể cấu hình. Backend, capture buffer size, OpenCV thread count, shutdown timeout, HTTP spare thread count, HTTP output buffer size cũng lấy từ configuration. Các giá trị vận hành nằm trong `services/camera/config.yaml`, tách khỏi Python code. `Config.from_yaml()` dùng YAML loader từ shared package, validate key, type và value, sau đó tạo configuration object. Tất cả field là bắt buộc; thiếu field hoặc có key không hợp lệ sẽ làm startup thất bại. Capture và HTTP server nhận configuration object, không đặt default riêng. File được chọn qua `--config` hoặc `CAMERA_CONFIG_FILE`; thay đổi configuration cần restart service. Tests dùng simulated frame đã xác minh JPEG output, client limit, cleanup, retry và stale frame. Chưa xác minh camera thật hoặc tải trên Pi 3B. Camera USB có thể xuất hiện tại `/dev/video0`; camera CSI cần kiểm tra pipeline và driver trên target OS, không mặc định mọi camera đều đọc được từ đường dẫn này.
+Camera service dùng OpenCV/V4L2 để capture camera USB và `aiortc` để tạo một video track cho mỗi camera cùng `RTCPeerConnection` cho browser. WebRTC chịu trách nhiệm vận chuyển media real-time, media encryption, congestion control và báo cáo trạng thái kết nối. Demo dùng HTTP `POST /offer` để trao đổi SDP trước khi media chạy; frame video không đi qua HTTP.
+
+Mỗi browser tạo một peer connection có lifecycle riêng. Service đóng peer khi connection disconnected/failed/closed, giới hạn peer bằng `max_peers` và đóng toàn bộ peer cùng camera khi service dừng. Mỗi camera chỉ có một capture thread; các peer đọc frame mới nhất từ nguồn dùng chung và không tích hàng đợi.
+
+Demo LAN tự định nghĩa browser là offerer và dùng HTTP `POST /offer` để gửi SDP offer rồi nhận SDP answer trong một request/response; không dùng trickle ICE, STUN hoặc TURN. HTTP chỉ là control plane cho signaling, không mang video frame. `aiortc` là implementation WebRTC bằng Python dựa trên `asyncio`; nó không thay thế signaling và không tự cung cấp TURN. Authentication, TLS và topology production vẫn cần chốt khi tích hợp Web thật.
+
+`GET /` trả browser demo, `GET /health` trả trạng thái từng camera và số peer, `POST /offer` nhận SDP offer rồi trả SDP answer. Profile demo đặt mục tiêu một camera 640×480 ở 30 FPS, một browser và latest-frame semantics: pipeline bỏ frame cũ nếu encode không kịp để tránh hàng đợi làm tăng latency. Configuration nhận danh sách `devices` để thêm `/dev/video1` và phát hai video track trong cùng peer connection. Phải benchmark CPU, RAM, nhiệt độ, bitrate và end-to-end latency; nếu hai camera không giữ được 30 FPS trên Pi 3B thì giảm FPS thay vì tích frame.
 
 ## MQTT broker bên ngoài
 

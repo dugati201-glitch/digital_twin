@@ -1,1 +1,1 @@
-"""Camera capture and HTTP MJPEG service."""
+"""Camera capture and WebRTC service."""
