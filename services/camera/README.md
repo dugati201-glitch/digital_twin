@@ -13,7 +13,7 @@ OpenCV/V4L2 camera capture with WebRTC video provided by `aiortc`. An `aiohttp` 
 - The LAN demo uses `RTCConfiguration(iceServers=[])`, no STUN/TURN, no trickle ICE, and one peer by default.
 - Video uses WebRTC/SRTP. HTTP carries HTML, JavaScript, health, and signaling only.
 
-The initial profile targets one camera at 640x480, 30 FPS. Capture and WebRTC tracks use latest-frame behavior: intermediate frames are dropped instead of queued when a consumer falls behind. Add `/dev/video1` to `devices` for the future two-camera benchmark; 2 x 30 FPS is not a guaranteed Pi 3B capability.
+The measured Pi 3B demo profile targets one camera at 640x480, 15 FPS. Capture and WebRTC tracks use latest-frame behavior: intermediate frames are dropped instead of queued when a consumer falls behind. Add `/dev/video1` only for a separate two-camera benchmark.
 
 ## Install and run
 
@@ -52,7 +52,7 @@ Click **Start** to create the peer connection. The old `/video_feed` endpoint no
 
 ## Configuration
 
-Settings are stored in [config.yaml](config.yaml). All fields are required and unknown fields fail startup.
+Settings are stored in [config.yaml](config.yaml). Unknown fields fail startup. `vp8_threads` defaults to `2` when upgrading an older deployed YAML.
 
 | Field | Purpose |
 | --- | --- |
@@ -60,6 +60,7 @@ Settings are stored in [config.yaml](config.yaml). All fields are required and u
 | `host` / `port` | HTTP demo, health, and signaling listener |
 | `width` / `height` / `fps` | Requested capture profile |
 | `max_peers` | Maximum simultaneous browser peer connections |
+| `vp8_threads` | libvpx worker threads for each peer's VP8 encoder; `2` is the Pi 3B trial value |
 | `retry_seconds` | Delay before reopening a failed camera |
 | `stale_seconds` | Maximum frame age and frame wait timeout |
 | `backend` | OpenCV `v4l2` or `auto` backend |
@@ -68,6 +69,8 @@ Settings are stored in [config.yaml](config.yaml). All fields are required and u
 | `shutdown_seconds` | Camera capture thread join timeout |
 
 Driver properties are requests. Rejected values are logged, and frames are resized to the configured output size when needed. Configuration changes require a service restart.
+
+`aiortc` normally selects one VP8 thread at 640x480. The service applies `vp8_threads` before peers are created so libvpx can use more than one core. More threads can reduce an encoder's deadline pressure, but every peer still has its own encoder; it does not make four cores equivalent to four viewers. Compare latency and CPU on the target and restore `vp8_threads: 1` if the extra scheduling overhead performs worse.
 
 ## systemd deployment
 

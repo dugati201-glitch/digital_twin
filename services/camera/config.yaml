@@ -5,8 +5,9 @@ host: 0.0.0.0
 port: 5000
 width: 640
 height: 480
-fps: 30
+fps: 15
 max_peers: 1
+vp8_threads: 2
 retry_seconds: 2.0
 stale_seconds: 5.0
 backend: v4l2

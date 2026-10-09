@@ -8,12 +8,15 @@ from tempfile import TemporaryDirectory
 
 from aiohttp.test_utils import AioHTTPTestCase
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from aiortc.codecs.vpx import Vp8Encoder
+from av import VideoFrame
 import cv2
 import numpy as np
 import yaml
 
 from camera_service.app import create_app
 from camera_service.capture import Camera
+from camera_service.codec import configure_vp8_threads
 from camera_service.config import Config
 from camera_service.track import CameraVideoTrack, VIDEO_TIME_BASE
 
@@ -130,6 +133,10 @@ class CameraTests(unittest.TestCase):
             self.assertEqual(config.devices, ["/dev/video0", "/dev/video1"])
             self.assertEqual((config.width, config.height, config.fps), (1280, 720, 30))
             self.assertEqual(config.backend, "auto")
+            legacy_data = {key: value for key, value in data.items()
+                           if key != "vp8_threads"}
+            path.write_text(yaml.safe_dump(legacy_data))
+            self.assertEqual(Config.from_yaml(path).vp8_threads, 2)
             invalid = [
                 "",
                 "[]",
@@ -159,10 +166,29 @@ class CameraTests(unittest.TestCase):
             dict(max_peers=0),
             dict(backend="unknown"),
             dict(shutdown_seconds=0),
+            dict(vp8_threads=0),
+            dict(vp8_threads=5),
         ]
         for overrides in invalid:
             with self.subTest(settings=overrides), self.assertRaises(ValueError):
                 settings(**overrides)
+
+
+class CodecTests(unittest.TestCase):
+    def test_configures_real_vp8_encoder_thread_count(self):
+        configured = configure_vp8_threads(2)
+        encoder = Vp8Encoder()
+        frame = VideoFrame.from_ndarray(
+            np.zeros((480, 640, 3), dtype=np.uint8),
+            format="bgr24",
+        )
+        frame.pts = 0
+        frame.time_base = VIDEO_TIME_BASE
+
+        encoder.encode(frame)
+
+        self.assertEqual(configured, min(2, __import__("os").cpu_count() or 1))
+        self.assertEqual(encoder.codec.thread_count, configured)
 
 
 class TrackTests(unittest.IsolatedAsyncioTestCase):

@@ -38,7 +38,7 @@ Chạy khi được kích hoạt"]
 
 MQTT broker nằm ngoài Pi và không có cấu hình triển khai trong repo. Gateway và camera có unit riêng để quản lý khởi động, dừng và restart độc lập. Camera virtual environment cần cài cả `shared/` và `services/camera/`. Camera unit sử dụng user `digital-twin`, group bổ sung `video`, `Restart=on-failure` và timeout shutdown 10 giây. Gateway unit chưa có configuration thực thi.
 
-Pi 3B có tài nguyên hạn chế. Demo một camera đặt mục tiêu 640×480 @ 30 FPS với một browser và phải đo CPU, RAM, nhiệt độ, FPS thực và video latency. Mở rộng hai camera đặt mục tiêu thử 2 × 640×480 @ 30 FPS, nhưng phải giảm FPS nếu Pi không giữ được tải và độ trễ yêu cầu. Chưa có benchmark WebRTC trong repo.
+Pi 3B có tài nguyên hạn chế. Benchmark thực tế chọn profile demo một camera 640×480 @ 15 FPS với một browser. Cấu hình `vp8_threads: 2` cho phép encoder VP8 thử dùng hai core thay vì mặc định một thread của aiortc ở độ phân giải này; vẫn phải đo lại CPU và latency vì đa thread có overhead. Hai camera và nhiều browser là các benchmark riêng.
 
 ## UART và camera
 
@@ -63,7 +63,7 @@ Trong demo cùng LAN, browser tạo offer và gửi tới HTTP `POST /offer` tr�
 - Browser là offerer; `POST /offer` nhận JSON gồm `sdp` và `type`, rồi trả JSON SDP answer.
 - Không trickle ICE; đợi ICE gathering hoàn tất trong lần trao đổi SDP.
 - Cùng LAN, không STUN/TURN và giới hạn một browser trong benchmark đầu.
-- Một camera mục tiêu 640×480 @ 30 FPS; hai camera là hai track và phải benchmark riêng.
+- Một camera mục tiêu 640×480 @ 15 FPS; hai camera là hai track và phải benchmark riêng.
 - Codec dùng tập codec chung do browser và `aiortc` negotiate trong bản đầu; ghi lại codec được chọn và tối ưu sau benchmark.
 - Production phải chốt authentication, HTTPS, STUN/TURN, session limit, timeout và reconnect behavior.
 

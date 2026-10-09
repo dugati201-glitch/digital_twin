@@ -5,8 +5,8 @@
 - **Đã chốt:** Web nhận camera bằng WebRTC; phía Pi dùng thư viện Python `aiortc`.
 - **Đã triển khai:** HTTP offer/answer signaling, browser demo, `aiortc` peer connection, one-track-per-camera và simulated-camera end-to-end frame test.
 - **Đã chốt cho demo LAN:** browser tạo offer; HTTP `POST /offer` chỉ trao đổi SDP; không dùng trickle ICE, STUN hoặc TURN; video chỉ truyền bằng WebRTC.
-- **Mục tiêu ban đầu:** một camera 640×480 ở 30 FPS, một browser, ưu tiên độ trễ thấp và bỏ frame cũ khi xử lý không kịp.
-- **Mở rộng dự kiến:** hai camera thành hai video track trong cùng peer connection. Chế độ 2 × 640×480 @ 30 FPS phải benchmark trên Pi 3B và được phép giảm FPS nếu CPU không đáp ứng.
+- **Profile đã đo trên Pi 3B:** một camera 640×480 ở 15 FPS, một browser, ưu tiên độ trễ thấp và bỏ frame cũ khi xử lý không kịp.
+- **Mở rộng dự kiến:** hai camera thành hai video track trong cùng peer connection và phải benchmark riêng ở 15 FPS.
 - **Chưa chốt cho production:** authentication, HTTPS, STUN/TURN, codec tối ưu, session limit và topology khác LAN.
 
 `aiortc` là thư viện triển khai WebRTC/ORTC trên Python dựa trên `asyncio`. WebRTC là tập hợp API và protocol cho media real-time giữa các peer. Hai khái niệm này không đồng nghĩa: WebRTC là chuẩn giao tiếp, còn `aiortc` là công cụ được chọn để Pi tham gia kết nối đó.
@@ -54,9 +54,11 @@ HTTP và WebRTC không loại trừ nhau. Implementation dùng HTTP cho trang de
 
 Browser demo dùng một `RTCPeerConnection`, gửi offer bằng `POST /offer` và gắn video track nhận được vào thẻ `video`. Bản đầu giới hạn một browser để kết quả benchmark phản ánh chi phí camera và codec thay vì tải từ nhiều peer.
 
-Nguồn capture đặt mục tiêu 640×480 @ 30 FPS với buffer nhỏ. Pipeline luôn ưu tiên frame mới nhất; nếu encode hoặc network chậm thì bỏ frame cũ thay vì tích hàng đợi. FPS cao không tự bảo đảm độ trễ thấp, nên phải đo end-to-end latency cùng CPU, nhiệt độ và frame thực nhận.
+Nguồn capture đặt mục tiêu 640×480 @ 15 FPS với buffer nhỏ. Pipeline luôn ưu tiên frame mới nhất; nếu encode hoặc network chậm thì bỏ frame cũ thay vì tích hàng đợi. FPS cao không tự bảo đảm độ trễ thấp, nên phải đo end-to-end latency cùng CPU, nhiệt độ và frame thực nhận.
 
-Thiết kế source phải nhận danh sách camera để sau này thêm `/dev/video1`. Hai camera dùng hai capture source và hai video track trong cùng peer connection. Không mặc định Pi 3B giữ được 30 FPS trên cả hai camera: tiêu chí mở rộng là thử 2 × 640×480 @ 30 FPS trước, sau đó giảm về 20 hoặc 15 FPS mỗi camera nếu CPU, nhiệt độ hoặc latency vượt giới hạn.
+Ở 640×480, `aiortc 1.15` mặc định chọn một thread cho libvpx. Camera service đặt `vp8_threads: 2` để thử cho một encoder dùng hai core trên Pi 3B. Đây là tuning theo implementation nội bộ của aiortc và phải benchmark: nhiều thread tạo thêm overhead, còn mỗi browser peer vẫn có encoder độc lập.
+
+Thiết kế source nhận danh sách camera để sau này thêm `/dev/video1`. Hai camera dùng hai capture source và hai video track trong cùng peer connection. Kết quả một camera cho thấy mã hóa VP8 là giới hạn chính, vì vậy hai camera bắt đầu benchmark ở 2 × 640×480 @ 15 FPS và phải giảm tiếp nếu CPU, nguồn hoặc latency vượt giới hạn.
 
 ## Vì sao phía Web quy định protocol
 
@@ -70,7 +72,7 @@ Trong demo này, repo tự định nghĩa cả browser và signaling contract n�
 2. Browser nhận đúng một video track và đóng peer sạch khi rời trang.
 3. Service dùng chung một nguồn camera cho các peer, giới hạn peer đồng thời và cleanup connection lỗi.
 4. `/health` phản ánh được camera readiness và trạng thái service; signaling lỗi trả thông tin đủ để Web xử lý.
-5. Một camera đạt mục tiêu 640×480 @ 30 FPS; đo CPU, RAM, nhiệt độ, FPS thực, bitrate và end-to-end latency.
+5. Một camera đạt mục tiêu 640×480 @ 15 FPS; so sánh `vp8_threads: 1` và `2`, đồng thời đo CPU, RAM, nhiệt độ, FPS thực, bitrate và end-to-end latency.
 6. Thử reconnect sau khi browser refresh, camera read lỗi, Wi-Fi gián đoạn và service restart.
 7. Benchmark lại với hai camera/two tracks; ghi rõ FPS bền vững thay vì mặc định 2 × 30 FPS.
 8. Khi chuyển khỏi LAN, thử topology triển khai thật và thêm TURN nếu direct connection không đáng tin cậy.

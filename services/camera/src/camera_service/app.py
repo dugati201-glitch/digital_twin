@@ -18,6 +18,7 @@ import cv2
 from digital_twin_common.logging import configure_logging
 
 from .capture import Camera
+from .codec import configure_vp8_threads
 from .config import Config
 from .track import CameraVideoTrack
 
@@ -116,6 +117,7 @@ async def _offer(request):
 
 
 async def _startup(app):
+    configure_vp8_threads(app[CONFIG_KEY].vp8_threads)
     cv2.setNumThreads(app[CONFIG_KEY].opencv_threads)
     for camera in app[CAMERAS_KEY]:
         camera.start()

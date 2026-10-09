@@ -47,7 +47,7 @@ Video không đi qua MQTT. MQTT publish thành công không xác nhận MCU đã
 - **Đã chốt:** camera tích hợp với Web bằng WebRTC và implementation phía Pi dùng `aiortc`.
 - **Đã triển khai:** `aiortc`, HTTP `POST /offer`, browser demo, peer limit, cleanup và simulated-camera WebRTC tests.
 - **Đã chốt cho demo LAN:** browser tạo offer; HTTP `POST /offer` trả answer; không trickle ICE, STUN hoặc TURN; media chỉ truyền bằng WebRTC.
-- **Cấu hình demo:** một camera 640×480 ở 30 FPS và một browser; pipeline bỏ frame cũ để hạn chế tăng latency.
+- **Cấu hình demo:** một camera 640×480 ở 15 FPS và một browser; VP8 thử hai encoder thread, pipeline bỏ frame cũ để hạn chế tăng latency.
 - **Mở rộng dự kiến:** hai camera là hai video track trong một peer connection; 2 × 30 FPS là mục tiêu benchmark, không phải khả năng đã xác minh trên Pi 3B.
 - **Chưa chốt cho production:** codec tối ưu, authentication, TLS, STUN/TURN, giới hạn peer và chính sách reconnect.
 - **Chưa chốt:** endpoint MQTT và WebSockets, TLS, topic permissions, thư viện Python, schema MQTT, QoS, authentication, xử lý command và cơ chế reconnect.

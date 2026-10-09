@@ -79,7 +79,7 @@ Mỗi browser tạo một peer connection có lifecycle riêng. Service đóng p
 
 Demo LAN tự định nghĩa browser là offerer và dùng HTTP `POST /offer` để gửi SDP offer rồi nhận SDP answer trong một request/response; không dùng trickle ICE, STUN hoặc TURN. HTTP chỉ là control plane cho signaling, không mang video frame. `aiortc` là implementation WebRTC bằng Python dựa trên `asyncio`; nó không thay thế signaling và không tự cung cấp TURN. Authentication, TLS và topology production vẫn cần chốt khi tích hợp Web thật.
 
-`GET /` trả browser demo, `GET /health` trả trạng thái từng camera và số peer, `POST /offer` nhận SDP offer rồi trả SDP answer. Profile demo đặt mục tiêu một camera 640×480 ở 30 FPS, một browser và latest-frame semantics: pipeline bỏ frame cũ nếu encode không kịp để tránh hàng đợi làm tăng latency. Configuration nhận danh sách `devices` để thêm `/dev/video1` và phát hai video track trong cùng peer connection. Phải benchmark CPU, RAM, nhiệt độ, bitrate và end-to-end latency; nếu hai camera không giữ được 30 FPS trên Pi 3B thì giảm FPS thay vì tích frame.
+`GET /` trả browser demo, `GET /health` trả trạng thái từng camera và số peer, `POST /offer` nhận SDP offer rồi trả SDP answer. Profile demo đặt mục tiêu một camera 640×480 ở 15 FPS, một browser và latest-frame semantics: pipeline bỏ frame cũ nếu encode không kịp để tránh hàng đợi làm tăng latency. `vp8_threads` điều chỉnh số worker libvpx cho từng encoder. Configuration nhận danh sách `devices` để thêm `/dev/video1` và phát hai video track trong cùng peer connection. Phải benchmark CPU, RAM, nhiệt độ, bitrate và end-to-end latency trước khi tăng camera hoặc peer.
 
 ## MQTT broker bên ngoài
 
