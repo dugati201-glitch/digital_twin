@@ -34,6 +34,13 @@ class FakeCapture:
     def set(self, key, value):
         return True
 
+    def get(self, key):
+        return {
+            cv2.CAP_PROP_FRAME_WIDTH: 32,
+            cv2.CAP_PROP_FRAME_HEIGHT: 24,
+            cv2.CAP_PROP_FPS: 30,
+        }.get(key, 0)
+
     def read(self):
         return (False, None) if self.fail else (
             True,
@@ -64,7 +71,11 @@ class FakeCamera:
     def wait_frame(self, sequence):
         time.sleep(0.01)
         self.sequence = max(self.sequence + 1, sequence + 1)
-        return self.sequence, np.zeros((48, 64, 3), dtype=np.uint8)
+        return (
+            self.sequence,
+            np.zeros((48, 64, 3), dtype=np.uint8),
+            time.monotonic(),
+        )
 
 
 class CameraTests(unittest.TestCase):
@@ -158,12 +169,33 @@ class TrackTests(unittest.IsolatedAsyncioTestCase):
     async def test_track_converts_latest_bgr_frame(self):
         camera = FakeCamera()
         camera.start()
-        track = CameraVideoTrack(camera, fps=30)
+        track = CameraVideoTrack(camera)
         first = await track.recv()
         second = await track.recv()
         self.assertEqual((first.width, first.height), (64, 48))
         self.assertEqual(first.time_base, VIDEO_TIME_BASE)
         self.assertGreater(second.pts, first.pts)
+        track.stop()
+
+    async def test_track_timestamp_uses_capture_time(self):
+        camera = FakeCamera()
+        camera.start()
+        capture_times = iter([10.0, 10.1])
+
+        def wait_frame(sequence):
+            camera.sequence += 1
+            return (
+                camera.sequence,
+                np.zeros((48, 64, 3), dtype=np.uint8),
+                next(capture_times),
+            )
+
+        camera.wait_frame = wait_frame
+        track = CameraVideoTrack(camera)
+        first = await track.recv()
+        second = await track.recv()
+        self.assertEqual(first.pts, 0)
+        self.assertEqual(second.pts, 9_000)
         track.stop()
 
 

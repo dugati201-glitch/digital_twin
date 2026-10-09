@@ -90,7 +90,7 @@ async def _offer(request):
     peer = app[PEER_FACTORY_KEY]()
     app[PEERS_KEY].add(peer)
     for camera in cameras:
-        peer.addTrack(CameraVideoTrack(camera, config.fps))
+        peer.addTrack(CameraVideoTrack(camera))
 
     @peer.on("connectionstatechange")
     async def on_connectionstatechange():

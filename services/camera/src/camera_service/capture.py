@@ -58,7 +58,7 @@ class Camera:
                 timeout=self.config.stale_seconds,
             )
             if self._fresh() and self._sequence != sequence:
-                return self._sequence, self._frame
+                return self._sequence, self._frame, self._updated
             return None
 
     def _run(self):
@@ -77,24 +77,34 @@ class Camera:
                     if not cap.set(key, value):
                         log.warning("Camera %s rejected property %s=%s",
                                     self.device, key, value)
-                log.info("Camera opened: %s; requested %sx%s at %s FPS",
-                         self.device, self.config.width, self.config.height, self.config.fps)
+                actual_width = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_height = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                log.info(
+                    "Camera opened: %s; requested %sx%s at %s FPS; "
+                    "driver reports %sx%s at %.2f FPS",
+                    self.device,
+                    self.config.width,
+                    self.config.height,
+                    self.config.fps,
+                    actual_width,
+                    actual_height,
+                    actual_fps,
+                )
                 while not self._stop.is_set():
-                    started = time.monotonic()
                     ok, frame = cap.read()
                     if not ok or frame is None:
                         raise RuntimeError("Camera frame read failed")
                     if frame.shape[:2] != (self.config.height, self.config.width):
                         frame = cv2.resize(frame, (self.config.width, self.config.height))
+                    captured_at = time.monotonic()
                     with self._condition:
                         if self._stop.is_set():
                             break
                         self._frame = frame
                         self._sequence += 1
-                        self._updated = time.monotonic()
+                        self._updated = captured_at
                         self._condition.notify_all()
-                    frame_period = 1 / self.config.fps
-                    self._stop.wait(max(0, frame_period - (time.monotonic() - started)))
             except Exception:
                 log.exception("Capture failed for %s; retrying in %s seconds",
                               self.device, self.config.retry_seconds)

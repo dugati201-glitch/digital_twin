@@ -12,22 +12,25 @@ VIDEO_TIME_BASE = Fraction(1, VIDEO_CLOCK_RATE)
 
 
 class CameraVideoTrack(VideoStreamTrack):
-    def __init__(self, camera, fps):
+    def __init__(self, camera):
         super().__init__()
         self.camera = camera
         self._sequence = -1
-        self._origin_sequence = None
-        self._pts_step = max(1, round(VIDEO_CLOCK_RATE / fps))
+        self._origin_time = None
+        self._last_pts = -1
 
     async def recv(self):
         result = await asyncio.to_thread(self.camera.wait_frame, self._sequence)
         if result is None:
             raise MediaStreamError
 
-        self._sequence, image = result
-        if self._origin_sequence is None:
-            self._origin_sequence = self._sequence
+        self._sequence, image, captured_at = result
+        if self._origin_time is None:
+            self._origin_time = captured_at
+        pts = round((captured_at - self._origin_time) * VIDEO_CLOCK_RATE)
+        # Clock resolution and synthetic test cameras can produce equal times.
+        self._last_pts = max(self._last_pts + 1, pts)
         frame = VideoFrame.from_ndarray(image, format="bgr24")
-        frame.pts = (self._sequence - self._origin_sequence) * self._pts_step
+        frame.pts = self._last_pts
         frame.time_base = VIDEO_TIME_BASE
         return frame
