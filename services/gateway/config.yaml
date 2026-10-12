@@ -1,0 +1,14 @@
+# Gateway configuration for Raspberry Pi 3B
+broker:
+  host: "mqtt.mysignage.vn"
+  port: 1883
+  keepalive: 60
+
+kit_code: "KIT-001"
+
+telemetry:
+  interval_ms: 500  # 2 Hz per SRS v1.8 / MQTT guide v2.2
+
+heartbeat:
+  interval_ms: 5000 # 5.0 seconds while in-use to maintain 30s watchdog
+

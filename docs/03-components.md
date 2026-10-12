@@ -41,9 +41,36 @@ Chu kỳ telemetry 50 ms và baudrate 115200 là thông số dự kiến. Cần 
 
 ### MQTT protocol
 
-**Đã chốt:** phân biệt telemetry message từ thiết bị với command từ Web. Gateway publish telemetry và subscribe command; Web thực hiện chiều tương ứng.
+**Đã chốt kiến trúc:** Web UI không kết nối trực tiếp MQTT broker (FR-DEV-004); mọi lệnh điều khiển đi qua API Server để kiểm tra xác thực, quyền sở hữu lượt và validation. API Server publish command xuống broker; Gateway trên Pi subscribe command. Chiều ngược lại, Gateway trên Pi publish telemetry và heartbeat lên broker; API Server subscribe và chuyển tiếp về Web UI qua Socket.IO.
 
-**Chưa chốt:** tên topic, device ID, payload format, đơn vị dữ liệu, timestamp, schema version, QoS, retained message, command acknowledgment và connection status. Không tự động gửi lại command sau reconnect khi chưa chốt chính sách xử lý stale command.
+Mỗi kit được định danh duy nhất bằng `kit_code` (cấu hình trong gateway). Danh mục topic tuân thủ tiền tố `lab/kit/{kit_code}/...`.
+
+#### 1. Server → Kit (Commands)
+
+| Topic | Payload | Ý nghĩa / Quy tắc |
+| --- | --- | --- |
+| `lab/kit/{kit_code}/cmd/reset` | `{"action":"start"}`<br>`{"action":"stop"}`<br>`{"action":"calib"}` | **Bắt buộc có `action` (đã chốt); bãi bỏ payload rỗng**.<br>- `start`: Đầu lượt, server gửi khi cấp kit, bắt đầu giám sát.<br>- `stop`: Cuối lượt, đưa thiết bị về trạng thái an toàn.<br>- `calib`: Sinh viên hiệu chuẩn cảm biến trong lượt. |
+| `lab/kit/{kit_code}/cmd/power` | `{"action":"on"}`<br>`{"action":"off"}` | **ON/OFF nguồn AC trong lượt (đã chốt)**. Nút nguồn AC ống dây, **không phải shutdown kit**, không kết thúc lượt. |
+| `lab/kit/{kit_code}/cmd/voltage` | `{"voltage": <mức>}` | **Chọn mức điện áp nguồn AC (đã chốt)**. Chỉ nhận các mức: `0, 3, 6, 9, 12` (V). |
+| `lab/kit/{kit_code}/cmd/scale` | `{"scale": "<thang>"}` | **Chọn thang Tesla Meter**. Chuỗi enum: `"1.999"`, `"19.99"`, `"199.9"` (mT). Không dùng float. |
+| `lab/kit/{kit_code}/cmd/ruler` | `{"position": <vị trí>}` | **Vị trí tuyệt đối thước**. Số nguyên `0–300` (mm), bước 1 mm. Không dùng delta. |
+| `lab/kit/{kit_code}/cmd/shutdown` | `{"action":"shutdown"}` | **Tắt toàn bộ nguồn kit từ admin**. Topic riêng biệt với OFF nguồn AC và reset. Dừng MQTT và camera. |
+
+*Lưu ý: Không còn khóa K trong hệ thống; không có topic command cho K.*
+
+#### 2. Kit → Server (Telemetry & Heartbeat)
+
+| Topic | Tần suất | Payload & Quy tắc |
+| --- | --- | --- |
+| `lab/kit/{kit_code}/telemetry` | **2 Hz** khi thực hành | Bộ thông số thực tế từ cảm biến.<br>- `magnetic_field`: 0–200 mT, không âm, giữ số gốc độ chính xác cao, không clamp.<br>- `current_ma`: Dòng điện đo thực tế bằng **mA** (không đổi sang A).<br>- `voltage`: Điện áp đo thực tế (V), độc lập mức đặt.<br>- `power_on`: Boolean trạng thái nguồn AC.<br>- `scale`: Thang hiện tại (`"1.999"`, `"19.99"`, `"199.9"`).<br>- `ruler_position`: Vị trí thước hiện tại (0–300 mm).<br>- Không có trường khóa K; không phát khi bảo trì/inactive. |
+| `lab/kit/{kit_code}/heartbeat` | Định kỳ (draft) | Tín hiệu sống duy trì watchdog 30s của server.<br>- **Chỉ gửi khi kit `in-use`** (đang trong lượt thực hành).<br>- Khi kit `idle` hoặc đang nghỉ: **không yêu cầu heartbeat**; server không coi im lặng ngoài lượt là kit lỗi. |
+
+#### 3. Quy ước Delivery và Acknowledgment
+
+- **Retain:** `retain=false` cho toàn bộ command, telemetry và heartbeat.
+- **QoS:** Đề xuất QoS 0 cho telemetry và heartbeat; QoS 1 cho command.
+- **Acknowledgment:** Hệ thống **không sử dụng MQTT command acknowledgment riêng** cho lệnh sinh viên. Web UI và Server xác nhận kết quả lệnh thông qua bản tin telemetry 2 Hz do kit gửi về; UI giữ trạng thái cũ đến khi telemetry mới xác nhận.
+- **Fencing:** Lệnh cũ của lượt trước không được tác động lượt mới hoặc phát lại sau reboot. Lệnh shutdown cũ không được phát lại làm tắt kit sau reboot.
 
 ## Camera service
 
@@ -83,9 +110,9 @@ Demo LAN tự định nghĩa browser là offerer và dùng HTTP `POST /offer` đ
 
 ## MQTT broker bên ngoài
 
-Broker chạy trên server do bên cung cấp quản lý, nằm ngoài phạm vi triển khai của repo. Chưa xác nhận broker đang sử dụng là Mosquitto hay một broker khác. Gateway là MQTT client; Web dự kiến kết nối qua MQTT/WebSockets nếu server hỗ trợ.
+Broker chạy trên server bên ngoài, nằm ngoài phạm vi triển khai của repo. Chưa xác nhận phần mềm broker đang sử dụng. Gateway trên Pi đóng vai trò MQTT client kết nối với broker để trao đổi dữ liệu với API Server. Web UI tương tác với API Server qua HTTP API và Socket.IO, không kết nối trực tiếp MQTT broker (FR-DEV-004).
 
-Cần xác nhận hostname, port, TLS, credentials, topic được phép sử dụng và endpoint WebSockets trước khi tích hợp. Chi tiết kết nối nằm trong [deployment.md](deployment.md).
+Cần xác nhận hostname, port, TLS, credentials và topic permissions cho Gateway trên Pi trước khi tích hợp. Chi tiết kết nối nằm trong [deployment.md](deployment.md).
 
 ## Shared code và logging
 

@@ -14,14 +14,16 @@ flowchart LR
 Chạy khi được kích hoạt"]
     end
     subgraph server["Server bên ngoài — do bên cung cấp quản lý"]
+        api["API Server"]
         broker["MQTT broker<br/>Phần mềm chưa xác nhận"]
     end
     mcu["ESP32 hoặc STM32"]
     cam["Camera USB/CSI"]
     git["Git repository"]
-    browser <-->|"MQTT/WebSockets, endpoint cần xác nhận"| broker
+    browser <-->|"HTTP API và Socket.IO"| api
+    api <-->|"MQTT (cmd và telemetry)"| broker
     camera <-->|"WebRTC media; HTTP signaling"| browser
-    gateway <-->|"MQTT/TCP hoặc TLS, endpoint chưa chốt"| broker
+    gateway <-->|"MQTT (KIT_MQTT_URL)"| broker
     gateway <-->|"UART"| mcu
     cam --> camera
     git --> update
@@ -54,7 +56,7 @@ Chỉ một process mở UART port tại một thời điểm. Nếu bổ sung f
 
 UART port, camera configuration, broker endpoint và signaling listener phải cấu hình được khi triển khai. Camera đọc YAML, xem [camera README](../services/camera/README.md) và `services/camera/config.yaml`. Camera unit giả định repo tại `/opt/digital_twin`, virtual environment tại `services/camera/.venv`, và YAML configuration tại `/etc/digital-twin/camera.yaml`, được chọn qua `CAMERA_CONFIG_FILE` trong unit. Logging configuration tại `/etc/digital-twin/logging.yaml`, được chọn qua `LOG_CONFIG_FILE` trong unit. File mẫu nằm tại `config/logging.yaml`; stdout được systemd thu qua journald. Configuration phải tồn tại và hợp lệ trước khi service khởi động. Schema WebRTC dùng `devices` và `max_peers`; file MJPEG cũ không còn hợp lệ. Restart service sau khi sửa YAML. Gateway configuration chưa chốt. Credentials, TURN secret, log, video và build artifact không lưu vào Git.
 
-Pi cần kết nối được đến broker bên ngoài. Web cần endpoint MQTT/WebSockets do bên cung cấp xác nhận và kết nối riêng đến camera service. Broker chỉ chuyển tiếp dữ liệu MQTT, không tự làm WebRTC signaling server, STUN server, TURN server hoặc media relay nếu chưa được thiết kế rõ cho các vai trò đó.
+Pi cần kết nối được đến broker bên ngoài qua biến cấu hình `KIT_MQTT_URL`. Web UI tương tác với API Server qua HTTP API và Socket.IO, đồng thời kết nối riêng đến camera service (WebRTC). Broker chỉ chuyển tiếp dữ liệu MQTT giữa Pi Gateway và API Server, không trực tiếp phục vụ Web UI và không tự làm WebRTC signaling server, STUN server, TURN server hoặc media relay nếu chưa được thiết kế rõ cho các vai trò đó.
 
 Trong demo cùng LAN, browser tạo offer và gửi tới HTTP `POST /offer` trên Pi; Pi trả answer sau khi ICE gathering hoàn tất. Demo không dùng trickle ICE, STUN hoặc TURN. HTTP chỉ mang trang demo, signaling JSON và health response; media chỉ truyền bằng WebRTC. Service listen `0.0.0.0:5000` theo profile hiện tại. Khi Web và Pi khác mạng, phải đánh giá STUN/TURN, firewall, NAT, authentication và TLS. WebRTC media được mã hóa, nhưng signaling vẫn phải được bảo vệ và xác thực.
 
@@ -80,13 +82,12 @@ Chưa chọn hostname làm endpoint chính, chưa xác định vai trò của t�
 
 Trước khi tích hợp, cần xác nhận:
 
-- Hostname và port MQTT dành cho gateway; có yêu cầu TLS hay không.
-- Username/password hoặc authentication method khác.
-- Topic và quyền publish/subscribe được cấp cho thiết bị và Web.
-- URL WebSockets cho Web, gồm `ws://` hoặc `wss://`, port và path; khả năng hỗ trợ WebSockets hiện chưa xác nhận.
-- QoS, retained message và connection limit phù hợp với dịch vụ.
+- Endpoint `KIT_MQTT_URL` (hostname, port, TCP plain hay TLS) dành cho Gateway trên Pi.
+- Username/password nếu broker yêu cầu (bảo vệ mạng theo NFR-SEC-003; MVP không cấp credential riêng từng kit).
+- Quyền publish topic `lab/kit/{kit_code}/telemetry`, `lab/kit/{kit_code}/heartbeat` và subscribe topic `lab/kit/{kit_code}/cmd/+`.
+- Connection limit và timeout cấu hình trên broker.
 
-Không mặc định server dùng port 1883, 8883 hoặc 9001. Credentials thực tế không lưu trong Git.
+Không mặc định server dùng port 1883 hoặc 8883. Credentials thực tế không lưu trong Git.
 
 ## Software update
 

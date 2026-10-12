@@ -16,6 +16,7 @@ recordings/
 
 # Build output
 build/
+bin/
 dist/
 *.egg-info/
 

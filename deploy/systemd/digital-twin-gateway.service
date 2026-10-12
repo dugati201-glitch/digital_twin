@@ -1,2 +1,21 @@
-# Placeholder: this is not a valid systemd unit yet.
-# Complete once the gateway entrypoint and runtime environment are available.
+[Unit]
+Description=Digital Twin Gateway MQTT Service (C Client)
+After=network.target
+
+[Service]
+Type=simple
+User=digital-twin
+Group=digital-twin
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/digital_twin/services/gateway
+ExecStart=/opt/digital_twin/services/gateway/bin/gateway_client
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
