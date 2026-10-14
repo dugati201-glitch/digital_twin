@@ -54,7 +54,8 @@ async def _client_javascript(request):
 async def _health(request):
     cameras = request.app[CAMERAS_KEY]
     camera_status = [
-        {"device": camera.device, "ready": camera.ready()}
+        {"device": camera.device, "ready": camera.ready(),
+         **(camera.stats() if hasattr(camera, "stats") else {})}
         for camera in cameras
     ]
     ready = bool(camera_status) and all(item["ready"] for item in camera_status)

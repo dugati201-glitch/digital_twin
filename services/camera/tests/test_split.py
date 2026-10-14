@@ -54,6 +54,37 @@ class ConfigAndParserTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shutdown_with_live_mjpeg_request(self):
+        config = SplitConfig('capture', [{'id': 'camera1', 'device': '/dev/video0'}])
+        source = SimulatedUsb(config, config.cameras[0])
+        pi = TestServer(create_source_app(config, [source]))
+        await pi.start_server()
+        try:
+            await asyncio.wait_for(source.wait_frame(-1), 1)
+            async with ClientSession() as client:
+                async with client.get(pi.make_url('/video_feed')) as response:
+                    self.assertEqual(response.status, 200)
+                    await asyncio.wait_for(response.content.read(100), 1)
+                    await asyncio.wait_for(pi.close(), 1)
+                    self.assertTrue(source.closed)
+                    self.assertTrue(source.task.done())
+        finally:
+            await pi.close()
+
+    async def test_stats_measure_publish_rate_and_staleness(self):
+        config = SplitConfig('capture', [{'id': 'camera1', 'device': '/dev/video0'}],
+                             stale_seconds=1)
+        source = LatestSource(config, config.cameras[0])
+        with patch('camera_service.mjpeg.time.monotonic', return_value=10.0):
+            await source.publish(b'a' * 1000)
+        with patch('camera_service.mjpeg.time.monotonic', return_value=10.1):
+            await source.publish(b'a' * 1000)
+            self.assertEqual(source.stats()['fps'], 10.0)
+            self.assertEqual(source.stats()['data_mbps'], 0.08)
+        with patch('camera_service.mjpeg.time.monotonic', return_value=12.0):
+            self.assertEqual(source.stats()['fps'], 0.0)
+            self.assertFalse(source.ready())
+
     async def test_track_waits_for_ingest_recovery(self):
         config = SplitConfig('server', [{'id': 'camera1', 'url': 'http://pi/video_feed'}],
                              stale_seconds=0.02)

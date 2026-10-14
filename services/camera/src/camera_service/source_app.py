@@ -12,6 +12,7 @@ SOURCES = web.AppKey("sources", list)
 async def health(request):
     cameras = [{"id": source.device, "device": source.location,
                 "ready": source.ready(),
+                **source.stats(),
                 "url": f"/cameras/{source.device}/video_feed"}
                for source in request.app[SOURCES]]
     ready = all(camera["ready"] for camera in cameras)
@@ -63,5 +64,7 @@ def create_source_app(config, sources=None):
         await asyncio.gather(*(source.stop() for source in app[SOURCES]))
 
     app.on_startup.append(startup)
-    app.on_cleanup.append(cleanup)
+    # Stop sources before aiohttp drains long-lived MJPEG requests. This wakes
+    # handlers and prevents FFmpeg restart while systemd is stopping the unit.
+    app.on_shutdown.append(cleanup)
     return app

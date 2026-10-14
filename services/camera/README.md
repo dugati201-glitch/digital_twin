@@ -49,6 +49,14 @@ http://PI_IP:5001/cameras/camera1/video_feed
 http://PI_IP:5001/cameras/camera2/video_feed
 ```
 
+Health also reports `fps` (measured source publication rate over a recent
+window), `frame_age_ms`, and `data_mbps`. On the Pi the latter measures JPEG
+payload; on the PC it measures decoded frame bytes, not network bitrate.
+Readiness alone does not guarantee smooth video. FFmpeg uses
+`-flush_packets 1` to emit each JPEG promptly. Capture stops during aiohttp's
+shutdown phase before draining streaming requests, avoiding an unnecessary
+wait for an indefinitely open MJPEG response.
+
 `/video_feed` is an alias for the first camera. A missing camera returns 503; an unknown ID returns 404. Camera failure triggers FFmpeg reopen with backoff. Slow HTTP consumers time out instead of blocking capture.
 
 ## Ubuntu PC setup

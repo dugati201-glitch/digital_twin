@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from collections import deque
 
 import aiohttp
 
@@ -49,6 +50,21 @@ class LatestSource:
         self.condition = asyncio.Condition()
         self.task = None
         self.closed = False
+        self.samples = deque(maxlen=120)
+
+    def stats(self):
+        now = time.monotonic()
+        recent = [(stamp, size) for stamp, size in self.samples if now - stamp <= 5]
+        fps = 0.0
+        mbps = 0.0
+        if self.ready() and len(recent) > 1:
+            elapsed = recent[-1][0] - recent[0][0]
+            if elapsed > 0:
+                fps = (len(recent) - 1) / elapsed
+                mbps = sum(size for _, size in recent[1:]) * 8 / elapsed / 1_000_000
+        return {"fps": round(fps, 2), "data_mbps": round(mbps, 2),
+                "frame_age_ms": round((now - self.updated) * 1000, 1)
+                if self.frame is not None else None}
 
     def ready(self):
         return (not self.closed and self.frame is not None
@@ -58,6 +74,8 @@ class LatestSource:
         async with self.condition:
             self.frame = frame
             self.updated = time.monotonic()
+            self.samples.append((self.updated, len(frame) if isinstance(frame, bytes)
+                                 else frame.nbytes))
             self.sequence += 1
             self.condition.notify_all()
 
@@ -91,7 +109,8 @@ class UsbJpegSource(LatestSource):
                 "-f", "v4l2", "-input_format", "mjpeg",
                 "-video_size", f"{self.config.width}x{self.config.height}",
                 "-framerate", str(self.config.fps), "-i", self.location,
-                "-an", "-c:v", "copy", "-f", "mjpeg", "pipe:1"]
+                "-an", "-c:v", "copy", "-f", "mjpeg",
+                "-flush_packets", "1", "pipe:1"]
 
     async def run(self):
         while not self.closed:

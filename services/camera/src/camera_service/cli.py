@@ -33,4 +33,5 @@ def main():
         app = create_app(config)
     logging.getLogger(__name__).info("Camera %s HTTP on %s:%s", config.role,
                                      config.host, config.port)
-    web.run_app(app, host=config.host, port=config.port, print=None)
+    web.run_app(app, host=config.host, port=config.port, print=None,
+                shutdown_timeout=config.shutdown_seconds)
