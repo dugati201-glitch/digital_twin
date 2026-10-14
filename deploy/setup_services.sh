@@ -46,13 +46,37 @@ install -m 0644 "${REPO_DIR}/services/gateway/config.yaml" /etc/digital-twin/gat
 echo "[4/6] Biên dịch Gateway C binary..."
 make -C "${REPO_DIR}/services/gateway"
 
-# 5. Thiết lập môi trường ảo Python cho Camera service (nếu chưa có)
+# 5. Thiết lập môi trường ảo Python cho Camera service
 echo "[5/6] Thiết lập môi trường ảo cho Camera WebRTC..."
-if [ ! -d "${REPO_DIR}/services/camera/.venv" ]; then
-    python3 -m venv --system-site-packages "${REPO_DIR}/services/camera/.venv"
+VENV_DIR="${REPO_DIR}/services/camera/.venv"
+VENV_PY="${VENV_DIR}/bin/python3"
+
+# Nếu venv chưa có hoặc thiếu python binary, xóa và tạo lại chuẩn
+if [ ! -f "${VENV_PY}" ]; then
+    rm -rf "${VENV_DIR}"
+    python3 -m venv --system-site-packages "${VENV_DIR}" || python3 -m venv --without-pip --system-site-packages "${VENV_DIR}"
 fi
-"${REPO_DIR}/services/camera/.venv/bin/pip" install --upgrade pip
-"${REPO_DIR}/services/camera/.venv/bin/pip" install -e "${REPO_DIR}/shared" -e "${REPO_DIR}/services/camera"
+
+# Cài đặt package shared và camera
+if "${VENV_PY}" -m pip --version &>/dev/null; then
+    "${VENV_PY}" -m pip install --break-system-packages -e "${REPO_DIR}/shared" -e "${REPO_DIR}/services/camera" 2>/dev/null || \
+    "${VENV_PY}" -m pip install -e "${REPO_DIR}/shared" -e "${REPO_DIR}/services/camera"
+else
+    pip3 install --break-system-packages -e "${REPO_DIR}/shared" -e "${REPO_DIR}/services/camera" 2>/dev/null || \
+    pip3 install -e "${REPO_DIR}/shared" -e "${REPO_DIR}/services/camera"
+fi
+
+# Đảm bảo binary entrypoint digital-twin-camera luôn tồn tại và thực thi được
+if [ ! -f "${VENV_DIR}/bin/digital-twin-camera" ]; then
+    mkdir -p "${VENV_DIR}/bin"
+    cat << 'EOF' > "${VENV_DIR}/bin/digital-twin-camera"
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="/opt/digital_twin/shared/src:/opt/digital_twin/services/camera/src:${PYTHONPATH}"
+exec "${SCRIPT_DIR}/python3" -m camera_service.app "$@"
+EOF
+    chmod +x "${VENV_DIR}/bin/digital-twin-camera"
+fi
 
 # Phân quyền thư mục repo cho digital-twin
 chown -R digital-twin:digital-twin "${REPO_DIR}"
@@ -78,3 +102,4 @@ echo ""
 systemctl --no-pager status digital-twin-gateway.service || true
 echo ""
 systemctl --no-pager status digital-twin-camera.service || true
+
