@@ -1,0 +1,18 @@
+# Raspberry Pi: select the two actual video capture nodes using v4l2-ctl.
+# /dev/video1 may be metadata; /dev/video2 is only an example.
+role: capture
+host: 0.0.0.0
+port: 5001
+width: 640
+height: 480
+fps: 15
+cameras:
+  - id: camera1
+    device: /dev/video0
+  - id: camera2
+    device: /dev/video2
+retry_seconds: 2.0
+stale_seconds: 5.0
+shutdown_seconds: 3.0
+max_frame_bytes: 4194304
+ffmpeg: ffmpeg

@@ -1,4 +1,6 @@
 let peer = null;
+let sessionId = null;
+let heartbeat = null;
 
 const startButton = document.querySelector("#start");
 const stopButton = document.querySelector("#stop");
@@ -42,12 +44,18 @@ async function start() {
     }
 
     connection.addEventListener("track", (event) => {
+      const index = connection.getTransceivers().indexOf(event.transceiver);
+      const panel = document.createElement("section");
+      const label = document.createElement("h2");
+      label.textContent = health.cameras[index]?.device || "Camera";
+      panel.appendChild(label);
       const video = document.createElement("video");
       video.autoplay = true;
       video.playsInline = true;
       video.muted = true;
       video.srcObject = new MediaStream([event.track]);
-      videos.appendChild(video);
+      panel.appendChild(video);
+      videos.appendChild(panel);
     });
 
     connection.addEventListener("connectionstatechange", () => {
@@ -74,7 +82,13 @@ async function start() {
     if (!offerResponse.ok) {
       throw new Error(answer.error || "WebRTC offer failed");
     }
-    await connection.setRemoteDescription(answer);
+    sessionId = answer.session_id;
+    await connection.setRemoteDescription({ sdp: answer.sdp, type: answer.type });
+    heartbeat = setInterval(() => {
+      if (sessionId) {
+        fetch("/sessions/" + sessionId, { method: "POST" }).catch(() => {});
+      }
+    }, 5000);
     stopButton.disabled = false;
   } catch (error) {
     setStatus(error.message);
@@ -83,6 +97,12 @@ async function start() {
 }
 
 function stop() {
+  clearInterval(heartbeat);
+  heartbeat = null;
+  if (sessionId) {
+    fetch("/sessions/" + sessionId, { method: "DELETE", keepalive: true }).catch(() => {});
+    sessionId = null;
+  }
   if (peer) {
     peer.close();
     peer = null;

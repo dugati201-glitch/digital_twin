@@ -1,5 +1,5 @@
 [Unit]
-Description=Digital Twin Camera WebRTC Service
+Description=Digital Twin Pi MJPEG Capture Service
 After=network.target
 
 [Service]
@@ -10,7 +10,7 @@ Group=digital-twin
 SupplementaryGroups=video
 WorkingDirectory=/opt/digital_twin/services/camera
 Environment=LOG_CONFIG_FILE=/etc/digital-twin/logging.yaml
-Environment=CAMERA_CONFIG_FILE=/etc/digital-twin/camera.yaml
+Environment=CAMERA_CONFIG_FILE=/etc/digital-twin/camera-capture.yaml
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/digital_twin/services/camera/.venv/bin/digital-twin-camera
 Restart=on-failure

@@ -22,7 +22,7 @@ from camera_service.track import CameraVideoTrack, VIDEO_TIME_BASE
 
 
 def settings(**overrides):
-    base = Config.from_yaml(Path(__file__).resolve().parents[1] / "config.yaml")
+    base = Config.from_yaml(Path(__file__).resolve().parents[1] / "legacy.yaml")
     return replace(base, **overrides)
 
 
@@ -122,7 +122,7 @@ class CameraTests(unittest.TestCase):
         self.assertFalse(camera.ready())
 
     def test_yaml_overrides_and_invalid_files(self):
-        source = Path(__file__).resolve().parents[1] / "config.yaml"
+        source = Path(__file__).resolve().parents[1] / "legacy.yaml"
         data = yaml.safe_load(source.read_text())
         data.update(devices=["/dev/video0", "/dev/video1"], width=1280,
                     height=720, fps=30, backend="auto")

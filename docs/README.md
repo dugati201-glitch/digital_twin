@@ -10,7 +10,7 @@ Tài liệu sử dụng mô hình C4 để mô tả system context, container v�
 2. [Containers](02-containers.md): các application, trách nhiệm và interface.
 3. [Components](03-components.md): các component bên trong service và quy ước tích hợp.
 4. [Camera WebRTC integration](04-camera-webrtc.md): giao thức camera, signaling contract và tiêu chí nghiệm thu.
-5. [Deployment](deployment.md): môi trường chạy trên Pi, connection và service lifecycle.
+5. [Deployment](deployment.md): môi trường Pi/PC, LAN/ZeroTier và service lifecycle.
 
 README của từng service mô tả phạm vi của service và liên kết đến tài liệu kiến trúc. Developer hoặc AI cần đọc các tài liệu trên trước khi thay đổi thiết kế.
 
@@ -21,7 +21,7 @@ README của từng service mô tả phạm vi của service và liên kết đ�
 - **Dự kiến:** khả năng phát triển về sau, không thuộc yêu cầu hiện tại.
 - **Đã triển khai:** chỉ dùng khi có code hoặc configuration thực tế và đã xác minh.
 
-Camera service đã triển khai WebRTC bằng `aiortc`, HTTP offer/answer signaling, browser demo và tests dùng simulated camera để xác minh negotiation cùng frame delivery. Chưa benchmark WebRTC trên Pi 3B. Gateway và update script chưa có implementation. Khi thiết kế hoặc hành vi thay đổi, cập nhật tài liệu tương ứng cùng với source code. Không ghi các giả định chưa xác minh thành khả năng đã có của hệ thống.
+Camera service đã triển khai WebRTC bằng `aiortc`, HTTP offer/answer signaling, browser demo và tests dùng simulated camera để xác minh negotiation cùng frame delivery. Benchmark cũ trên Pi ghi nhận tải VP8 cao và giật khi nhiều browser. Source mới đã tách Pi thu HTTP MJPEG và PC mã hóa aiortc/WebRTC; kiểm thử giả lập hai camera đạt, cần benchmark hardware. Gateway và update script chưa có implementation. Khi thiết kế hoặc hành vi thay đổi, cập nhật tài liệu tương ứng cùng với source code. Không ghi các giả định chưa xác minh thành khả năng đã có của hệ thống.
 
 ## Quy ước ngôn ngữ
 

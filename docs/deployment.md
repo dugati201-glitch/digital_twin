@@ -1,46 +1,29 @@
-# Deployment — Raspberry Pi 3B
+# Deployment — Raspberry Pi 3B và PC Ubuntu
 
-**Trạng thái:** camera service đã triển khai WebRTC bằng `aiortc`, HTTP signaling, browser demo, tests và systemd unit. Chưa cài dependency mới hoặc benchmark WebRTC trên Pi 3B. Gateway unit và update script vẫn là placeholder.
+**Đã triển khai source và kiểm thử giả lập:** Pi thu MJPEG từ USB và phục vụ HTTP; PC nhận nguồn, mã hóa VP8 bằng aiortc và phục vụ browser qua WebRTC. Chưa benchmark pipeline mới trên hardware. Gateway và update script vẫn chưa triển khai.
 
 ```mermaid
 flowchart LR
-    subgraph client["Máy người vận hành"]
-        browser["Web browser"]
-    end
-    subgraph pi["Raspberry Pi 3B — Linux và systemd"]
-        gateway["digital-twin-gateway.service"]
-        camera["digital-twin-camera.service"]
-        update["scripts/update.sh
-Chạy khi được kích hoạt"]
-    end
-    subgraph server["Server bên ngoài — do bên cung cấp quản lý"]
-        api["API Server"]
-        broker["MQTT broker<br/>Phần mềm chưa xác nhận"]
-    end
-    mcu["ESP32 hoặc STM32"]
-    cam["Camera USB/CSI"]
-    git["Git repository"]
+    cam["Camera USB"] --> capture["Pi: nguồn MJPEG"]
+    capture -->|"HTTP MJPEG qua LAN hoặc ZeroTier"| pc["PC Ubuntu: camera server aiortc"]
+    pc <-->|"WebRTC media; HTTP signaling"| browser["Browser"]
+    gateway["Pi: gateway"] <-->|"UART"| mcu["MCU"]
+    gateway <-->|"MQTT"| broker["MQTT broker bên ngoài"]
+    broker <-->|"MQTT"| api["API Server bên ngoài"]
     browser <-->|"HTTP API và Socket.IO"| api
-    api <-->|"MQTT (cmd và telemetry)"| broker
-    camera <-->|"WebRTC media; HTTP signaling"| browser
-    gateway <-->|"MQTT (KIT_MQTT_URL)"| broker
-    gateway <-->|"UART"| mcu
-    cam --> camera
-    git --> update
-    update -.->|"Cập nhật và restart ứng dụng liên quan"| gateway
-    update -.-> camera
 ```
 
-## Service và resource
+## Vai trò và service
 
-| Service | Configuration trong repo | Resource |
+| Máy | Vai trò camera mới | Trạng thái |
 | --- | --- | --- |
-| Gateway | `deploy/systemd/digital-twin-gateway.service` | Serial và MQTT |
-| Camera | `deploy/systemd/digital-twin-camera.service` | Camera, signaling listener và WebRTC peer connections |
+| Pi 3B | Thu JPEG camera nén sẵn, HTTP MJPEG, giữ frame mới nhất | Đã có source; chưa benchmark hardware |
+| PC Ubuntu | HTTP ingest, giải mã JPEG, aiortc/VP8, HTTP signaling và WebRTC | Đã có source; chưa benchmark hardware |
+| API Server / MQTT broker ngoài | Telemetry và command | Vai trò riêng, không phải camera server PC |
 
-MQTT broker nằm ngoài Pi và không có cấu hình triển khai trong repo. Gateway và camera có unit riêng để quản lý khởi động, dừng và restart độc lập. Camera virtual environment cần cài cả `shared/` và `services/camera/`. Camera unit sử dụng user `digital-twin`, group bổ sung `video`, `Restart=on-failure` và timeout shutdown 10 giây. Gateway unit chưa có configuration thực thi.
+`deploy/systemd/digital-twin-camera.service` nay chạy role capture trên Pi, dùng `/etc/digital-twin/camera-capture.yaml`. Unit `digital-twin-camera-server.service` chạy role server trên PC, dùng `/etc/digital-twin/camera-server.yaml`. Cả hai giả định repo ở `/opt/digital_twin`; hướng dẫn cài và chuyển đổi nằm tại [camera README](../services/camera/README.md).
 
-Pi 3B có tài nguyên hạn chế. Benchmark thực tế chọn profile demo một camera 640×480 @ 15 FPS với một browser. Cấu hình `vp8_threads: 2` cho phép encoder VP8 thử dùng hai core thay vì mặc định một thread của aiortc ở độ phân giải này; vẫn phải đo lại CPU và latency vì đa thread có overhead. Hai camera và nhiều browser là các benchmark riêng.
+Benchmark cũ ghi nhận một worker khoảng 87% một lõi ở 640×480 @ 15 FPS; hai browser gây giật và Pi từng sụt áp. Số đo này thuộc bản encode trên Pi. Chưa có benchmark Pi → PC mới. Việc chuyển encode lên PC không loại bỏ yêu cầu nguồn camera USB ổn định và băng thông ingest.
 
 ## UART và camera
 
@@ -54,20 +37,31 @@ Chỉ một process mở UART port tại một thời điểm. Nếu bổ sung f
 
 ## Cấu hình triển khai
 
-UART port, camera configuration, broker endpoint và signaling listener phải cấu hình được khi triển khai. Camera đọc YAML, xem [camera README](../services/camera/README.md) và `services/camera/config.yaml`. Camera unit giả định repo tại `/opt/digital_twin`, virtual environment tại `services/camera/.venv`, và YAML configuration tại `/etc/digital-twin/camera.yaml`, được chọn qua `CAMERA_CONFIG_FILE` trong unit. Logging configuration tại `/etc/digital-twin/logging.yaml`, được chọn qua `LOG_CONFIG_FILE` trong unit. File mẫu nằm tại `config/logging.yaml`; stdout được systemd thu qua journald. Configuration phải tồn tại và hợp lệ trước khi service khởi động. Schema WebRTC dùng `devices` và `max_peers`; file MJPEG cũ không còn hợp lệ. Restart service sau khi sửa YAML. Gateway configuration chưa chốt. Credentials, TURN secret, log, video và build artifact không lưu vào Git.
+Pi cấu hình camera device/profile trong `capture.yaml`; PC cấu hình HTTP source URL và peer limit trong `server.yaml`. YAML được sao chép sang `/etc/digital-twin/camera-capture.yaml` hoặc `camera-server.yaml` trên máy tương ứng. Unit chọn file qua `CAMERA_CONFIG_FILE`; logging dùng `/etc/digital-twin/logging.yaml`. File `/etc/digital-twin/camera.yaml` cũ không được unit mới đọc. CLI mới yêu cầu `role` và `cameras`; YAML cũ không tương thích. Pi cài FFmpeg và package camera cơ bản; PC cài extra `[server]`. Restart service tương ứng sau khi sửa cấu hình. Credentials, video, log và build artifact không lưu vào Git.
 
 Pi cần kết nối được đến broker bên ngoài qua biến cấu hình `KIT_MQTT_URL`. Web UI tương tác với API Server qua HTTP API và Socket.IO, đồng thời kết nối riêng đến camera service (WebRTC). Broker chỉ chuyển tiếp dữ liệu MQTT giữa Pi Gateway và API Server, không trực tiếp phục vụ Web UI và không tự làm WebRTC signaling server, STUN server, TURN server hoặc media relay nếu chưa được thiết kế rõ cho các vai trò đó.
 
-Trong demo cùng LAN, browser tạo offer và gửi tới HTTP `POST /offer` trên Pi; Pi trả answer sau khi ICE gathering hoàn tất. Demo không dùng trickle ICE, STUN hoặc TURN. HTTP chỉ mang trang demo, signaling JSON và health response; media chỉ truyền bằng WebRTC. Service listen `0.0.0.0:5000` theo profile hiện tại. Khi Web và Pi khác mạng, phải đánh giá STUN/TURN, firewall, NAT, authentication và TLS. WebRTC media được mã hóa, nhưng signaling vẫn phải được bảo vệ và xác thực.
+### Triển khai camera mới
 
-### Contract WebRTC của demo
+1. Dùng LAN trước: PC kiểm tra kết nối tới Pi bằng IP LAN và SSH để quản trị.
+2. Triển khai nguồn V4L2/MJPEG trên Pi và ingest/aiortc trên PC theo [camera README](../services/camera/README.md).
+3. PC đọc URL nguồn Pi; browser mở trang PC. Kiểm tra HTTP ingest và WebRTC media riêng.
+4. Benchmark một camera 640×480 @ 15 FPS, sau đó tăng FPS, người xem hoặc camera.
+5. Đổi URL nguồn sang IP ZeroTier khi cần khác mạng, đo lại latency và bandwidth.
 
-- Browser là offerer; `POST /offer` nhận JSON gồm `sdp` và `type`, rồi trả JSON SDP answer.
-- Không trickle ICE; đợi ICE gathering hoàn tất trong lần trao đổi SDP.
-- Cùng LAN, không STUN/TURN và giới hạn một browser trong benchmark đầu.
-- Một camera mục tiêu 640×480 @ 15 FPS; hai camera là hai track và phải benchmark riêng.
-- Codec dùng tập codec chung do browser và `aiortc` negotiate trong bản đầu; ghi lại codec được chọn và tối ưu sau benchmark.
-- Production phải chốt authentication, HTTPS, STUN/TURN, session limit, timeout và reconnect behavior.
+Endpoint mẫu đã triển khai: Pi `http://10.147.19.87:5001/cameras/camera1/video_feed`; PC `http://10.147.19.29:5000/` và `POST /offer`. Browser trên PC dùng `http://localhost:5000/`. Cần cài dependency mới và cập nhật unit trước khi chạy.
+
+### ZeroTier và SSH
+
+PC đã có IP ZeroTier `10.147.19.29`; Pi `10.147.19.87`, cả hai báo `OK`. ZeroTier tạo mạng ảo, không cấp camera server; PC của người phát triển đảm nhiệm vai trò server. LAN không bắt buộc ZeroTier. IP phải cấu hình được và không hard-code vào source.
+
+```bash
+# Chạy trên PC để kiểm tra đường mạng ZeroTier và quản trị Pi
+ping -c 4 10.147.19.87
+ssh thang@10.147.19.87
+```
+
+SSH không vận chuyển video trong thiết kế. Service phải tiếp tục chạy khi ngắt SSH. PC cần bật và chạy server để browser nhận hình. HTTP mở được không bảo đảm ICE/UDP media đã hoạt động; demo LAN không STUN/TURN, đường ZeroTier phải kiểm tra riêng.
 
 ### Thông tin broker cần xác nhận
 

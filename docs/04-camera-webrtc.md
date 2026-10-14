@@ -1,84 +1,87 @@
-# Camera WebRTC integration
+# Camera — Pi thu hình, PC phục vụ WebRTC
 
-## Trạng thái quyết định
+## Quyết định và trạng thái
 
-- **Đã chốt:** Web nhận camera bằng WebRTC; phía Pi dùng thư viện Python `aiortc`.
-- **Đã triển khai:** HTTP offer/answer signaling, browser demo, `aiortc` peer connection, one-track-per-camera và simulated-camera end-to-end frame test.
-- **Đã chốt cho demo LAN:** browser tạo offer; HTTP `POST /offer` chỉ trao đổi SDP; không dùng trickle ICE, STUN hoặc TURN; video chỉ truyền bằng WebRTC.
-- **Profile đã đo trên Pi 3B:** một camera 640×480 ở 15 FPS, một browser, ưu tiên độ trễ thấp và bỏ frame cũ khi xử lý không kịp.
-- **Mở rộng dự kiến:** hai camera thành hai video track trong cùng peer connection và phải benchmark riêng ở 15 FPS.
-- **Chưa chốt cho production:** authentication, HTTPS, STUN/TURN, codec tối ưu, session limit và topology khác LAN.
+**Đã triển khai source mới, kiểm thử giả lập đạt; hardware chưa benchmark:** Pi 3B thu hình từ camera USB và phục vụ HTTP MJPEG; PC Ubuntu nhận hình, giải mã JPEG và dùng `aiortc` mã hóa VP8, phục vụ WebRTC cho browser.
 
-`aiortc` là thư viện triển khai WebRTC/ORTC trên Python dựa trên `asyncio`. WebRTC là tập hợp API và protocol cho media real-time giữa các peer. Hai khái niệm này không đồng nghĩa: WebRTC là chuẩn giao tiếp, còn `aiortc` là công cụ được chọn để Pi tham gia kết nối đó.
+CLI hiện tại chọn role `capture` hoặc `server`. Pi đọc `capture.yaml` và dùng unit `digital-twin-camera`; PC đọc `server.yaml` và dùng unit `digital-twin-camera-server`. Bản combined cũ chỉ giữ module và `legacy.yaml` cho regression test. Phải cập nhật dependency, YAML và unit khi nâng cấp. Benchmark cũ cho thấy tải VP8 cao và video giật khi hai browser xem trên Pi. Source mới chuyển mã hóa sang PC; kiểm thử xác minh hai nguồn MJPEG tới hai WebRTC track, reconnect và session cleanup, chưa xác nhận hiệu năng hardware.
 
-## Luồng kết nối
+## Đường đi của hình ảnh
 
 ```mermaid
-sequenceDiagram
-    participant Web as Browser/Web UI
-    participant Signal as HTTP signaling endpoint
-    participant Pi as Camera service / aiortc
-    participant Cam as USB camera
-
-    Web->>Signal: POST /offer chứa SDP offer
-    Signal->>Pi: Chuyển offer vào RTCPeerConnection
-    Pi->>Signal: SDP answer sau ICE gathering
-    Signal->>Web: HTTP response chứa SDP answer
-    Cam->>Pi: Raw video frames
-    Pi-->>Web: Encrypted WebRTC media
+flowchart LR
+    cam["Camera USB"] -->|"MJPEG qua USB/V4L2"| pi["Pi: chuyển tiếp JPEG"]
+    pi -->|"HTTP MJPEG qua LAN hoặc ZeroTier"| pc["PC: giải mã JPEG, aiortc mã hóa VP8"]
+    pc -->|"WebRTC/SRTP"| web["Browser"]
+    web <-->|"HTTP signaling /offer"| pc
 ```
 
-Signaling chỉ giúp hai peer tìm nhau và thống nhất session. WebRTC specification không bắt buộc một signaling transport cụ thể. Demo chọn một HTTP request/response để giảm số thành phần: browser gửi SDP offer tới `POST /offer` và Pi trả SDP answer. HTTP không mang frame video; sau khi ICE chọn được đường truyền và bảo mật được thiết lập, video chỉ đi qua WebRTC media transport.
+- Camera Ugreen đã xác minh hỗ trợ MJPG và YUYV, không xuất H.264. Pi cần yêu cầu MJPG và lấy JPEG nén sẵn từ camera để chuyển tiếp, tránh giải mã sang BGR rồi nén JPEG lại.
+- PC chủ động mở HTTP connection tới Pi, đọc response `multipart/x-mixed-replace` chứa JPEG liên tiếp. Pi không cần biết IP PC.
+- PC giải mã JPEG thành frame, mã hóa VP8 bằng aiortc và gửi WebRTC. H.264 là lựa chọn benchmark sau.
+- HTTP browser ↔ PC mang trang demo, health và SDP offer/answer. HTTP Pi → PC mang hình ảnh; WebRTC PC → browser mang video.
+- Video không đi qua MQTT. SSH dùng quản trị, không tự truyền camera.
 
-Trong cùng LAN, hai peer thường kết nối trực tiếp bằng địa chỉ nội bộ nên demo không cấu hình STUN/TURN. Khi khác mạng hoặc qua NAT/firewall, STUN hỗ trợ khám phá địa chỉ và TURN relay media khi không tạo được đường trực tiếp. `aiortc` không tự triển khai hạ tầng STUN/TURN.
+Yêu cầu WebRTC trong thiết kế này áp dụng ở đầu nhận browser. Nếu yêu cầu cả Pi → PC dùng WebRTC thì cần đổi contract.
 
-## So sánh với MJPEG qua HTTP
+## Contract đã triển khai
 
-| Tiêu chí | MJPEG qua HTTP trước đây | WebRTC bằng `aiortc` hiện tại |
+| Máy | Endpoint | Trách nhiệm |
 | --- | --- | --- |
-| Cách truyền | Nhiều ảnh JPEG hoàn chỉnh trong một HTTP response | Video track qua SRTP media transport được peer connection thiết lập |
-| Tích hợp browser | Thẻ `img` trỏ tới `/video_feed` | JavaScript tạo `RTCPeerConnection` và gắn `MediaStream` vào thẻ `video` |
-| Signaling | Không cần negotiation | Bắt buộc trao đổi SDP và ICE qua HTTP/WebSocket hoặc kênh khác |
-| Độ trễ | Đơn giản nhưng dễ tăng trễ khi mạng hoặc buffer không phù hợp | Thiết kế cho real-time và có congestion control |
-| Băng thông | Cao vì mỗi frame là một JPEG độc lập | Codec video tận dụng quan hệ giữa các frame, thường hiệu quả hơn |
-| Mạng thay đổi | Không có cơ chế media adaptation chuẩn | Có feedback, congestion control và thống kê kết nối |
-| Bảo mật media | Phụ thuộc HTTPS; bản hiện tại chỉ HTTP | Media WebRTC được mã hóa theo session |
-| NAT/firewall | Muốn truy cập từ Internet phải tự bố trí đường HTTP/reverse proxy | ICE/STUN/TURN hỗ trợ tìm đường hoặc relay, nhưng cần hạ tầng và cấu hình |
-| Độ phức tạp Pi | Ít state và dễ debug | Phải quản lý peer connection, codec, async lifecycle và cleanup |
-| Tải Pi 3B | JPEG encode tốn CPU và băng thông | Video encode có thể tiết kiệm băng thông nhưng codec software vẫn có thể quá tải CPU |
-| Nhiều người xem | Mỗi client nhận một bản MJPEG; băng thông tăng theo client | Mỗi peer có connection và encode/send cost; cần đo hoặc dùng media server khi scale |
+| Pi | `GET :5001/cameras/{id}/video_feed` | MJPEG từng camera; `/video_feed` là alias camera đầu |
+| Pi | `GET :5001/health` | Readiness camera và frame freshness |
+| PC | `GET :5000/` | Browser demo |
+| PC | `GET :5000/health` | Readiness nguồn MJPEG và số peer |
+| PC | `POST :5000/offer` | Nhận SDP offer, trả SDP answer và session token |
+| PC | `POST/DELETE :5000/sessions/{token}` | Heartbeat và đóng phiên; mặc định hết hạn sau 20 giây |
+| PC | WebRTC transport | Media qua port UDP được ICE chọn; không cố định ở port HTTP 5000 |
 
-HTTP và WebRTC không loại trừ nhau. Implementation dùng HTTP cho trang demo, `/health` và `/offer`; video không còn được vận chuyển dưới dạng MJPEG response và endpoint `/video_feed` đã bị loại bỏ.
+Browser là offerer, chờ ICE gathering rồi gửi JSON `sdp` và `type` tới PC. Demo LAN đầu không trickle ICE, STUN hoặc TURN. Khi dùng ZeroTier cần kiểm tra ICE/media thực tế; mở được trang HTTP chưa xác nhận video UDP hoạt động.
 
-## Cấu hình demo và định hướng hai camera
+PC mở một kết nối ingest cho mỗi camera, dùng chung nguồn frame mới nhất cho các peer và bỏ frame trung gian khi xử lý chậm. Timestamp dùng clock monotonic khi nhận frame; MJPEG không mang timestamp chụp chuẩn nên cần đo latency đầu cuối riêng.
 
-Browser demo dùng một `RTCPeerConnection`, gửi offer bằng `POST /offer` và gắn video track nhận được vào thẻ `video`. Bản đầu giới hạn một browser để kết quả benchmark phản ánh chi phí camera và codec thay vì tải từ nhiều peer.
+Bản đầu vẫn tạo encoder riêng cho từng peer trên PC; chuyển mã hóa lên PC không tự tạo SFU hoặc chia sẻ video đã mã hóa. Giới hạn peer và số worker phải benchmark theo CPU PC.
 
-Nguồn capture đặt mục tiêu 640×480 @ 15 FPS với buffer nhỏ. Pipeline luôn ưu tiên frame mới nhất; nếu encode hoặc network chậm thì bỏ frame cũ thay vì tích hàng đợi. FPS cao không tự bảo đảm độ trễ thấp, nên phải đo end-to-end latency cùng CPU, nhiệt độ và frame thực nhận.
+## LAN, ZeroTier và SSH
 
-Ở 640×480, `aiortc 1.15` mặc định chọn một thread cho libvpx. Camera service đặt `vp8_threads: 2` để thử cho một encoder dùng hai core trên Pi 3B. Đây là tuning theo implementation nội bộ của aiortc và phải benchmark: nhiều thread tạo thêm overhead, còn mỗi browser peer vẫn có encoder độc lập.
+| Thành phần | Vai trò |
+| --- | --- |
+| LAN | Đường mạng nội bộ giữa Pi và PC |
+| ZeroTier | Mạng riêng ảo để các máy liên lạc cả khi khác mạng |
+| SSH | Terminal quản trị Pi |
+| Camera server | Chương trình aiortc chạy trên PC |
 
-Thiết kế source nhận danh sách camera để sau này thêm `/dev/video1`. Hai camera dùng hai capture source và hai video track trong cùng peer connection. Kết quả một camera cho thấy mã hóa VP8 là giới hạn chính, vì vậy hai camera bắt đầu benchmark ở 2 × 640×480 @ 15 FPS và phải giảm tiếp nếu CPU, nguồn hoặc latency vượt giới hạn.
+Hai máy đã vào cùng mạng ZeroTier, trạng thái `OK`: PC `10.147.19.29`, Pi `10.147.19.87`. Đây là địa chỉ triển khai ghi nhận, không hard-code vào source. ZeroTier không cấp server, không mã hóa video thay Pi. Chưa có camera server ngoài được cấp; PC của người phát triển làm server demo, có vai trò riêng với API Server điều khiển và MQTT broker.
 
-## Vì sao phía Web quy định protocol
+- LAN: PC đọc `http://IP_LAN_PI:5001/cameras/camera1/video_feed`.
+- ZeroTier: PC đọc `http://10.147.19.87:5001/cameras/camera1/video_feed`.
+- Browser trên PC: `http://localhost:5000/`.
+- Browser khác có đường mạng tới PC: `http://10.147.19.29:5000/`.
 
-Camera service và Web UI phải thống nhất cùng một interface. Nếu Web đã xây player quanh `RTCPeerConnection`, Web cần nhận SDP/ICE và WebRTC media track; endpoint MJPEG không thể cắm trực tiếp vào flow này. Phía Web thường chọn WebRTC khi sản phẩm cần độ trễ thấp, playback bằng browser API chuẩn, media encryption, congestion control, thống kê chất lượng hoặc khả năng kết nối qua nhiều loại mạng.
+Camera thứ hai dùng `/cameras/camera2/video_feed`. Cài đặt theo [camera README](../services/camera/README.md). Thiết bị dùng ZeroTier cần cùng network và được authorize. Khi cùng LAN không bắt buộc dùng ZeroTier. Không cần giữ SSH mở để stream chạy.
 
-Trong demo này, repo tự định nghĩa cả browser và signaling contract nên có thể triển khai `POST /offer` trước. Khi tích hợp với Web thật, đội Web phải xác nhận contract này hoặc cung cấp contract thay thế; câu “dùng aiortc” chỉ chốt implementation phía Pi, chưa chốt signaling và hạ tầng production.
+## Profile và phục hồi
 
-## Tiêu chí triển khai và nghiệm thu
+Bắt đầu một camera 640×480 @ 15 FPS, một browser và LAN. Sau khi đo ổn mới thử 30 FPS, ba browser, hai camera và ZeroTier. Chưa cam kết hiệu năng.
 
-1. Browser gửi offer bằng `POST /offer`, nhận answer và hoàn tất ICE trong cùng LAN.
-2. Browser nhận đúng một video track và đóng peer sạch khi rời trang.
-3. Service dùng chung một nguồn camera cho các peer, giới hạn peer đồng thời và cleanup connection lỗi.
-4. `/health` phản ánh được camera readiness và trạng thái service; signaling lỗi trả thông tin đủ để Web xử lý.
-5. Một camera đạt mục tiêu 640×480 @ 15 FPS; so sánh `vp8_threads: 1` và `2`, đồng thời đo CPU, RAM, nhiệt độ, FPS thực, bitrate và end-to-end latency.
-6. Thử reconnect sau khi browser refresh, camera read lỗi, Wi-Fi gián đoạn và service restart.
-7. Benchmark lại với hai camera/two tracks; ghi rõ FPS bền vững thay vì mặc định 2 × 30 FPS.
-8. Khi chuyển khỏi LAN, thử topology triển khai thật và thêm TURN nếu direct connection không đáng tin cậy.
+Pi giữ JPEG mới nhất; PC giới hạn buffer, reconnect có backoff và báo unavailable khi nguồn cũ. Peer cần được thu hồi khi Stop, đóng tab, lỗi hoặc hết hạn để tránh slot bị chiếm mãi. PC phải bật và chạy server để browser xem được.
 
-## Tài liệu tham khảo
+Hai camera dùng hai nguồn MJPEG và hai track. Schema `role`/`cameras` nằm trong `capture.yaml` và `server.yaml`; ID nguồn và URL phải cấu hình đúng. Hai camera mẫu được bật mặc định; nếu chỉ có một camera, bỏ mục camera thứ hai trong cả hai file. Kiểm tra thiết bị V4L2 thực tế, không giả định `/dev/video1` là camera thứ hai.
+
+## Tiêu chí nghiệm thu
+
+1. Pi chọn MJPG và chuyển JPEG không encode VP8/H.264.
+2. PC nhận MJPEG qua LAN, đo FPS và reconnect khi Pi restart.
+3. Browser signaling với PC và nhận WebRTC.
+4. Đo CPU/RAM Pi và PC, nguồn/nhiệt Pi, băng thông và latency bằng đồng hồ trong khung hình.
+5. So sánh 15/30 FPS, một/ba browser; Pi không tạo thêm encoder theo người xem.
+6. Thử hai camera, kiểm tra nguồn USB.
+7. Thử ZeroTier, kiểm tra HTTP và ICE/media riêng.
+8. Tắt SSH vẫn stream; PC restart tự nối lại nguồn.
+9. Chốt authentication, HTTPS và topology production trước khi mở rộng.
+
+## Tham khảo
 
 - [aiortc documentation](https://aiortc.readthedocs.io/)
-- [aiortc API reference](https://aiortc.readthedocs.io/en/latest/api.html)
-- [W3C WebRTC Recommendation](https://www.w3.org/TR/webrtc/)
+- [W3C WebRTC](https://www.w3.org/TR/webrtc/)
+- [ZeroTier setup](https://docs.zerotier.com/start/)

@@ -72,41 +72,30 @@ Mỗi kit được định danh duy nhất bằng `kit_code` (cấu hình trong 
 - **Acknowledgment:** Hệ thống **không sử dụng MQTT command acknowledgment riêng** cho lệnh sinh viên. Web UI và Server xác nhận kết quả lệnh thông qua bản tin telemetry 2 Hz do kit gửi về; UI giữ trạng thái cũ đến khi telemetry mới xác nhận.
 - **Fencing:** Lệnh cũ của lượt trước không được tác động lượt mới hoặc phát lại sau reboot. Lệnh shutdown cũ không được phát lại làm tắt kit sau reboot.
 
-## Camera service
+## Camera capture trên Pi và camera server trên PC
 
-**Đã triển khai:** WebRTC bằng `aiortc`, HTTP signaling và browser demo. **Chưa xác minh:** hiệu năng WebRTC trên Pi 3B.
+**Đã triển khai source và kiểm thử giả lập hai camera.** Pi dùng FFmpeg V4L2 MJPEG stream copy; PC nhận HTTP MJPEG, giải mã JPEG bằng OpenCV và chạy aiortc. Chưa benchmark hardware.
 
 ```mermaid
 flowchart LR
-    device["Camera Linux"]
-    web["Browser"]
-    subgraph camera["Camera service"]
-        capture["Capture
-Frame capture and camera configuration"]
-        track["Video track
-aiortc MediaStreamTrack"]
-        peer["Peer connection
-RTCPeerConnection lifecycle"]
-        signaling["Signaling adapter
-SDP và ICE"]
-    end
-    device --> capture
-    capture --> track
-    track --> peer
-    peer <-->|"WebRTC media"| web
-    signaling <-->|"HTTP POST /offer"| web
+    device["USB camera MJPG"] --> capture["Pi: V4L2 lấy JPEG"]
+    capture --> http["Pi: HTTP MJPEG"]
+    http -->|"LAN hoặc ZeroTier"| ingest["PC: MJPEG ingest/reconnect"]
+    ingest --> decode["PC: giải mã JPEG, latest frame"]
+    decode --> track["PC: aiortc video track / VP8"]
+    track --> peer["PC: peer lifecycle"]
+    peer <-->|"WebRTC media"| web["Browser"]
+    web <-->|"HTTP /offer"| signaling["PC: signaling"]
     signaling --> peer
 ```
 
-### WebRTC implementation
+Pi thu MJPEG nén sẵn từ camera, giữ JPEG mới nhất và phục vụ HTTP; không giải mã BGR rồi encode JPEG lại, không chạy encoder VP8. Đường capture đã dùng FFmpeg `-c:v copy`; cần xác minh với driver thực tế.
 
-Camera service dùng OpenCV/V4L2 để capture camera USB và `aiortc` để tạo một video track cho mỗi camera cùng `RTCPeerConnection` cho browser. WebRTC chịu trách nhiệm vận chuyển media real-time, media encryption, congestion control và báo cáo trạng thái kết nối. Demo dùng HTTP `POST /offer` để trao đổi SDP trước khi media chạy; frame video không đi qua HTTP.
+PC dùng một kết nối ingest cho mỗi camera, đọc multipart JPEG, giải mã và giữ frame mới nhất. Ingest cần timeout, phát hiện frame cũ và reconnect có backoff. Timestamp video dựa clock monotonic tại PC; không tích hàng đợi khi encoder chậm.
 
-Mỗi browser tạo một peer connection có lifecycle riêng. Service đóng peer khi connection disconnected/failed/closed, giới hạn peer bằng `max_peers` và đóng toàn bộ peer cùng camera khi service dừng. Mỗi camera chỉ có một capture thread; các peer đọc frame mới nhất từ nguồn dùng chung và không tích hàng đợi.
+PC phục vụ demo `GET /`, health và `POST /offer`; browser tạo offer, PC trả answer. Mỗi browser có peer/encoder riêng ở bản đầu. `max_peers` và worker encode là tài nguyên PC; không tự tăng tải encoder Pi theo số người xem. SFU hoặc encode dùng chung chưa triển khai.
 
-Demo LAN tự định nghĩa browser là offerer và dùng HTTP `POST /offer` để gửi SDP offer rồi nhận SDP answer trong một request/response; không dùng trickle ICE, STUN hoặc TURN. HTTP chỉ là control plane cho signaling, không mang video frame. `aiortc` là implementation WebRTC bằng Python dựa trên `asyncio`; nó không thay thế signaling và không tự cung cấp TURN. Authentication, TLS và topology production vẫn cần chốt khi tích hợp Web thật.
-
-`GET /` trả browser demo, `GET /health` trả trạng thái từng camera và số peer, `POST /offer` nhận SDP offer rồi trả SDP answer. Profile demo đặt mục tiêu một camera 640×480 ở 15 FPS, một browser và latest-frame semantics: pipeline bỏ frame cũ nếu encode không kịp để tránh hàng đợi làm tăng latency. `vp8_threads` điều chỉnh số worker libvpx cho từng encoder. Configuration nhận danh sách `devices` để thêm `/dev/video1` và phát hai video track trong cùng peer connection. Phải benchmark CPU, RAM, nhiệt độ, bitrate và end-to-end latency trước khi tăng camera hoặc peer.
+Peer cần cleanup khi Stop, rời trang, connection lỗi hoặc hết hạn. Hai camera là hai nguồn ingest và hai track. Pi dùng `capture.yaml`, PC dùng `server.yaml`; mỗi nguồn có URL `/cameras/{id}/video_feed`. Có unit riêng cho Pi capture và PC server. Contract endpoint dự kiến và nghiệm thu nằm tại [04-camera-webrtc.md](04-camera-webrtc.md).
 
 ## MQTT broker bên ngoài
 

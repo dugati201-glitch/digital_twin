@@ -1,6 +1,7 @@
 """aiortc video track backed by the latest OpenCV camera frame."""
 
 import asyncio
+import inspect
 from fractions import Fraction
 
 from aiortc import VideoStreamTrack
@@ -20,7 +21,17 @@ class CameraVideoTrack(VideoStreamTrack):
         self._last_pts = -1
 
     async def recv(self):
-        result = await asyncio.to_thread(self.camera.wait_frame, self._sequence)
+        if inspect.iscoroutinefunction(self.camera.wait_frame):
+            # Keep remote tracks alive while ingest reconnects. Do not send a
+            # stale frame or build a backlog during an outage.
+            while self.readyState == "live" and not self.camera.closed:
+                result = await self.camera.wait_frame(self._sequence)
+                if result is not None:
+                    break
+            else:
+                raise MediaStreamError
+        else:
+            result = await asyncio.to_thread(self.camera.wait_frame, self._sequence)
         if result is None:
             raise MediaStreamError
 

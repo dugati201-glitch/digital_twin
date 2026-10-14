@@ -1,0 +1,16 @@
+# Ubuntu PC: replace Pi address with its LAN IP when testing locally.
+role: server
+host: 0.0.0.0
+port: 5000
+cameras:
+  - id: camera1
+    url: http://10.147.19.87:5001/cameras/camera1/video_feed
+  - id: camera2
+    url: http://10.147.19.87:5001/cameras/camera2/video_feed
+max_peers: 3
+vp8_threads: 2
+opencv_threads: 1
+retry_seconds: 2.0
+stale_seconds: 5.0
+peer_timeout_seconds: 20.0
+max_frame_bytes: 4194304
